@@ -17,10 +17,12 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Support\NormalisasiKolom;
+use App\Support\PemetaanDataEkonomi;
 
 class ProsesImportEtl implements ShouldQueue
 {
     use NormalisasiKolom;
+    use PemetaanDataEkonomi;
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries   = 1;
@@ -161,15 +163,17 @@ class ProsesImportEtl implements ShouldQueue
                         ->where('periode_id', $periodeId)
                         ->firstOrFail();
 
-                    // ===== Simpan data ekonomi (hanya kolom yang masih dipakai SAW) =====
-                    $subKriteriaMap = $self->mapSubKriteria($row, $kriteria);
+                    // ===== Simpan data ekonomi (FIX: tidak lagi 0) =====
+                    // Nilai penghasilan/tanggungan/pekerjaan/dll diturunkan dari
+                    // sub kriteria yang cocok, BUKAN (float) mentah dari label Excel.
+                    $resolve  = $self->resolveSubKriteria($row, $kriteria);
+                    $fieldEko = $self->petakanFieldEkonomi($resolve['subs']);
 
-                    DataEkonomi::create(array_merge([
-                        'pendaftaran_id'    => $pendaftaran->id,
-                        'penghasilan_ayah'  => (float) ($row['penghasilan_ayah'] ?? 0),
-                        'penghasilan_ibu'   => (float) ($row['penghasilan_ibu'] ?? 0),
-                        'penghasilan_total' => (float) ($row['penghasilan_ayah'] ?? 0) + (float) ($row['penghasilan_ibu'] ?? 0),
-                    ], $subKriteriaMap));
+                    DataEkonomi::create(array_merge(
+                        ['pendaftaran_id' => $pendaftaran->id],
+                        $fieldEko,        // penghasilan_ayah/ibu/total, tanggungan, pekerjaan, dll
+                        $resolve['ids']   // sub_c1_id ... sub_c12_id
+                    ));
 
                     // ===== Jalankan SAW / bypass KIP =====
                     // SawService::hitung() sekarang mengembalikan array dan SUDAH
@@ -224,9 +228,14 @@ class ProsesImportEtl implements ShouldQueue
         ]);
     }
 
-    private function mapSubKriteria(array $row, $kriteria): array
+    /**
+     * Cari sub kriteria yang cocok untuk tiap kolom kriteria.
+     * @return array{ids: array<string,int>, subs: array<string,\App\Models\SubKriteria>}
+     */
+    private function resolveSubKriteria(array $row, $kriteria): array
     {
-        $map = [];
+        $ids  = [];
+        $subs = [];
 
         foreach ($kriteria as $kode => $k) {
             $field = 'sub_' . strtolower($kode) . '_id';
@@ -238,17 +247,26 @@ class ProsesImportEtl implements ShouldQueue
                 continue;
             }
 
-            // Cari sub kriteria berdasarkan nilai atau label
-            $sub = $k->subKriteria
-                ->first(fn($s) => (float) $s->nilai == (float) $nilaiRow
-                    || strtolower(trim($s->label)) === strtolower(trim((string) $nilaiRow)));
+            $nilaiLower = strtolower(trim((string) $nilaiRow));
+
+            // Cari sub kriteria berdasarkan label (utama) atau nilai numerik
+            $sub = $k->subKriteria->first(function ($s) use ($nilaiRow, $nilaiLower) {
+                if (strtolower(trim((string) $s->label)) === $nilaiLower) {
+                    return true;
+                }
+                if ($nilaiLower !== '' && str_contains(strtolower((string) $s->label), $nilaiLower)) {
+                    return true;
+                }
+                return is_numeric($nilaiRow) && (float) $s->nilai == (float) $nilaiRow;
+            });
 
             if ($sub) {
-                $map[$field] = $sub->id;
+                $ids[$field]  = $sub->id;
+                $subs[$kode]  = $sub;
             }
         }
 
-        return $map;
+        return ['ids' => $ids, 'subs' => $subs];
     }
 
     private function parseBoolean($value): ?bool
