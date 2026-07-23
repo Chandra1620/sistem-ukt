@@ -1,0 +1,25 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('golongan_ukt', function (Blueprint $table) {
+            $table->id();
+            $table->integer('golongan')->unique();
+            $table->decimal('nominal', 12, 2);
+            $table->decimal('skor_min', 6, 2)->nullable();
+            $table->decimal('skor_max', 6, 2)->nullable();
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('golongan_ukt');
+    }
+};
