@@ -70,7 +70,10 @@
         .sidebar {
             width: 280px;
             min-height: 100vh;
-            background: linear-gradient(165deg, #0f2b3d 0%, #091b27 100%);
+            background: linear-gradient(165deg, rgba(15, 43, 61, 0.92) 0%, rgba(9, 27, 39, 0.95) 100%), url('{{ asset('images/login-bg.png') }}');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
             position: fixed;
             top: 0;
             left: 0;
@@ -112,6 +115,12 @@
             background: none;
             -webkit-text-fill-color: #3b82f6;
             color: #3b82f6;
+        }
+
+        .sidebar-brand .brand-text img.brand-logo-img {
+            height: 48px;
+            width: auto;
+            border-radius: 50%;
         }
 
         .sidebar-close-btn {
@@ -853,7 +862,7 @@
             <!-- Brand -->
             <div class="sidebar-brand">
                 <div class="brand-text">
-                    <i class="bi bi-mortarboard-fill"></i>
+                    <img src="{{ asset('images/logo.png') }}" alt="Logo Politeknik Negeri Indramayu" class="brand-logo-img">
                     <span>Sistem UKT</span>
                 </div>
                 <button class="sidebar-close-btn" id="sidebarCloseBtn" aria-label="Tutup sidebar">
@@ -1049,27 +1058,36 @@
         (function() {
             const notifList = document.getElementById('notif-list');
             const notifBadge = document.getElementById('notif-count');
+            const csrf = document.querySelector('meta[name="csrf-token"]');
+
+            // Set badge SELALU dari angka yang dihitung server (sinkron DB).
+            function setBadge(count) {
+                count = parseInt(count) || 0;
+                if (!notifBadge) return;
+                if (count > 0) {
+                    notifBadge.textContent = count > 99 ? '99+' : count;
+                    notifBadge.style.display = 'block';
+                } else {
+                    notifBadge.textContent = '';
+                    notifBadge.style.display = 'none';
+                }
+            }
 
             async function loadNotifikasi() {
                 try {
-                    const res = await fetch('/api/notifikasi');
+                    const res = await fetch('/api/notifikasi', { headers: { 'Accept': 'application/json' } });
                     const data = await res.json();
+                    const list = Array.isArray(data) ? data : (data.notifikasi || []);
 
-                    const unread = data.filter(function(n) {
-                        return !n.dibaca;
-                    });
-
-                    // Update badge
-                    if (unread.length > 0) {
-                        notifBadge.textContent = unread.length;
-                        notifBadge.style.display = 'block';
-                    } else {
-                        notifBadge.style.display = 'none';
-                    }
+                    // Badge dari server (bukan tebakan sisi klien).
+                    const serverCount = Array.isArray(data)
+                        ? list.filter(n => !n.dibaca).length
+                        : (data.jumlah_belum_dibaca || 0);
+                    setBadge(serverCount);
 
                     if (!notifList) return;
 
-                    if (!data || data.length === 0) {
+                    if (!list || list.length === 0) {
                         notifList.innerHTML =
                             '<li class="dropdown-item text-muted text-center py-4" style="font-size:0.85rem;"><i class="bi bi-bell-slash me-2"></i> Tidak ada notifikasi</li>';
                         return;
@@ -1087,14 +1105,14 @@
                         </li>
                     `;
 
-                    data.forEach(function(n) {
+                    list.forEach(function(n) {
                         const isUnread = !n.dibaca;
                         html += `
                             <li class="dropdown-item py-3 px-3"
                                 style="background:${isUnread ? '#fef9e3' : '#fff'}; cursor:pointer; border-bottom:1px solid #f1f5f9;"
                                 onmouseenter="this.style.backgroundColor='${isUnread ? '#fef3c7' : '#f8fafc'}'"
                                 onmouseleave="this.style.backgroundColor='${isUnread ? '#fef9e3' : '#fff'}'"
-                                onclick="window.bacaNotif(${n.id}, this)">
+                                onclick="window.bacaNotif(${n.id})">
                                 <div class="d-flex align-items-start gap-2">
                                     <div class="flex-shrink-0 mt-1">
                                         <i class="${n.ikon || 'bi bi-bell'}"
@@ -1112,9 +1130,9 @@
                                             ${n.pesan}
                                         </p>
                                         <small style="color:#9ca3af; font-size:10px;">
-                                            ${new Date(n.created_at).toLocaleString('id-ID', {
+                                            ${n.created_at ? new Date(n.created_at).toLocaleString('id-ID', {
                                                 day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
-                                            })}
+                                            }) : ''}
                                         </small>
                                     </div>
                                 </div>
@@ -1123,44 +1141,34 @@
                     });
 
                     notifList.innerHTML = html;
-
                 } catch (e) {
                     console.warn('Notifikasi error:', e);
                 }
             }
 
-            window.bacaNotif = async function(id, el) {
+            // Sinkron badge ringan tanpa render ulang daftar (polling murah).
+            async function refreshBadge() {
                 try {
-                    await fetch('/api/notifikasi/' + id + '/baca', {
+                    const res = await fetch('/api/notifikasi/jumlah', { headers: { 'Accept': 'application/json' } });
+                    const data = await res.json();
+                    setBadge(data.jumlah_belum_dibaca || 0);
+                } catch (e) { /* diamkan */ }
+            }
+
+            window.bacaNotif = async function(id) {
+                try {
+                    const res = await fetch('/api/notifikasi/' + id + '/baca', {
                         method: 'POST',
                         headers: {
-                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                            'Content-Type': 'application/json'
+                            'X-CSRF-TOKEN': csrf ? csrf.content : '',
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
                         }
                     });
-
-                    // Update tampilan
-                    el.style.backgroundColor = '#fff';
-                    el.onmouseenter = null;
-                    el.onmouseleave = null;
-
-                    const dot = el.querySelector('.badge.bg-primary');
-                    if (dot) dot.remove();
-
-                    const judul = el.querySelector('strong');
-                    if (judul) {
-                        judul.style.color = '#6b7280';
-                        judul.style.fontWeight = '400';
-                    }
-
-                    // Update badge
-                    const current = parseInt(notifBadge.textContent) || 0;
-                    if (current > 1) {
-                        notifBadge.textContent = current - 1;
-                    } else {
-                        notifBadge.style.display = 'none';
-                    }
-
+                    const data = await res.json().catch(() => ({}));
+                    // Badge dari DB + render ulang daftar agar status konsisten.
+                    if (data && typeof data.jumlah_belum_dibaca !== 'undefined') setBadge(data.jumlah_belum_dibaca);
+                    await loadNotifikasi();
                 } catch (e) {
                     console.error('Gagal menandai notifikasi:', e);
                 }
@@ -1168,43 +1176,33 @@
 
             window.bacaSemuaNotif = async function() {
                 try {
-                    await fetch('/api/notifikasi/baca-semua', {
+                    const res = await fetch('/api/notifikasi/baca-semua', {
                         method: 'POST',
                         headers: {
-                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                            'Content-Type': 'application/json'
+                            'X-CSRF-TOKEN': csrf ? csrf.content : '',
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
                         }
                     });
-
-                    // Update semua item
-                    document.querySelectorAll('#notif-list li.dropdown-item').forEach(function(item) {
-                        // Skip header
-                        if (item.querySelector('.fw-semibold')) return;
-
-                        item.style.backgroundColor = '#fff';
-                        item.onmouseenter = null;
-                        item.onmouseleave = null;
-
-                        const dot = item.querySelector('.badge.bg-primary');
-                        if (dot) dot.remove();
-
-                        const judul = item.querySelector('strong');
-                        if (judul) {
-                            judul.style.color = '#6b7280';
-                            judul.style.fontWeight = '400';
-                        }
-                    });
-
-                    notifBadge.style.display = 'none';
-
+                    const data = await res.json().catch(() => ({}));
+                    setBadge(data && typeof data.jumlah_belum_dibaca !== 'undefined' ? data.jumlah_belum_dibaca : 0);
+                    await loadNotifikasi();
                 } catch (e) {
                     console.error('Gagal menandai semua notifikasi:', e);
                 }
             };
 
-            // Load & interval
+            // Muat awal + polling (near real-time). Daftar penuh tiap 30 dtk,
+            // badge tiap 10 dtk agar cepat sinkron dengan DB.
             loadNotifikasi();
             setInterval(loadNotifikasi, 30000);
+            setInterval(refreshBadge, 10000);
+            // Segarkan saat tab kembali aktif / saat dropdown dibuka.
+            document.addEventListener('visibilitychange', function() {
+                if (!document.hidden) loadNotifikasi();
+            });
+            const notifBtn = document.querySelector('.notif-btn');
+            if (notifBtn) notifBtn.addEventListener('click', loadNotifikasi);
         })();
 
         // ============================================

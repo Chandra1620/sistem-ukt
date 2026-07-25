@@ -6,13 +6,23 @@ use App\Http\Controllers\Controller;
 use App\Models\Pendaftaran;
 use App\Models\HasilUkt;
 use App\Models\DataEkonomi;
-use Illuminate\Support\Facades\DB;
+use App\Models\PeriodeSeleksi;
 
 class StatistikController extends Controller
 {
+    /** ID periode aktif (atau null bila tidak ada periode aktif). */
+    private function periodeAktifId(): ?int
+    {
+        return PeriodeSeleksi::where('status', 'aktif')->value('id');
+    }
+
     public function pendaftar()
     {
+        $periodeId = $this->periodeAktifId();
+
         $data = Pendaftaran::selectRaw("DATE(created_at) as tanggal, COUNT(*) as total")
+            ->where('status', '!=', 'draft')
+            ->when($periodeId, fn($q) => $q->where('periode_id', $periodeId))
             ->where('created_at', '>=', now()->subDays(30))
             ->groupBy('tanggal')
             ->orderBy('tanggal')
@@ -23,7 +33,15 @@ class StatistikController extends Controller
 
     public function distribusiUkt()
     {
+        $periodeId = $this->periodeAktifId();
+
         $data = HasilUkt::selectRaw("golongan_final, COUNT(*) as total")
+            ->whereHas('pendaftaran', function ($q) use ($periodeId) {
+                $q->where('status', '!=', 'draft');
+                if ($periodeId) {
+                    $q->where('periode_id', $periodeId);
+                }
+            })
             ->groupBy('golongan_final')
             ->orderBy('golongan_final')
             ->get()
@@ -31,12 +49,17 @@ class StatistikController extends Controller
                 'golongan' => $d->golongan_final == 0 ? 'KIP' : 'Golongan ' . $d->golongan_final,
                 'total'    => $d->total,
             ]);
+
         return response()->json($data);
     }
 
     public function perProdi()
     {
+        $periodeId = $this->periodeAktifId();
+
         $data = Pendaftaran::with('programStudi')
+            ->where('status', '!=', 'draft')
+            ->when($periodeId, fn($q) => $q->where('periode_id', $periodeId))
             ->selectRaw("program_studi_id, COUNT(*) as total")
             ->groupBy('program_studi_id')
             ->get()
@@ -50,31 +73,35 @@ class StatistikController extends Controller
 
     public function ekonomi()
     {
-        $data = DataEkonomi::selectRaw("
-            AVG(penghasilan_total) as rata_rata,
-            MIN(penghasilan_total) as minimum,
-            MAX(penghasilan_total) as maximum,
-            COUNT(*) as total
-        ")->first();
+        $periodeId = $this->periodeAktifId();
 
-        // Median manual
-        $median = 0;
-        $count  = DataEkonomi::count();
+        $ekonomiQuery = DataEkonomi::whereHas('pendaftaran', function ($q) use ($periodeId) {
+            $q->where('status', '!=', 'draft');
+            if ($periodeId) {
+                $q->where('periode_id', $periodeId);
+            }
+        });
+
+        $count  = (clone $ekonomiQuery)->count();
+        $median = 0.0;
         if ($count > 0) {
-            $sorted = DataEkonomi::orderBy('penghasilan_total')
-                ->pluck('penghasilan_total');
-            $mid    = (int) floor($count / 2);
+            $sorted = (clone $ekonomiQuery)
+                ->orderBy('penghasilan_total')
+                ->pluck('penghasilan_total')
+                ->map(fn($v) => (float) $v)
+                ->values();
+            $mid    = intdiv($count, 2);
             $median = $count % 2 === 0
-                ? ($sorted[$mid - 1] + $sorted[$mid]) / 2
+                ? (($sorted[$mid - 1] + $sorted[$mid]) / 2)
                 : $sorted[$mid];
         }
 
         return response()->json([
-            'rata_rata' => round($data->rata_rata ?? 0),
+            'rata_rata' => round((float) ((clone $ekonomiQuery)->avg('penghasilan_total') ?? 0)),
             'median'    => round($median),
-            'minimum'   => $data->minimum ?? 0,
-            'maximum'   => $data->maximum ?? 0,
-            'total'     => $data->total ?? 0,
+            'minimum'   => (float) ((clone $ekonomiQuery)->min('penghasilan_total') ?? 0),
+            'maximum'   => (float) ((clone $ekonomiQuery)->max('penghasilan_total') ?? 0),
+            'total'     => $count,
         ]);
     }
 }

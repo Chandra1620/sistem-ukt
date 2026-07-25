@@ -3,9 +3,14 @@
 @section('page-title', 'Hasil UKT Anda')
 
 @section('content')
-    <div class="row g-4">
+    @php
+        $hasBandingArea =
+            ($pendaftaran->status === 'final_ukt' && !$pendaftaran->is_kip) ||
+            ($pendaftaran->banding && $pendaftaran->banding->count() > 0);
+    @endphp
+    <div class="row g-4 justify-content-center">
         {{-- Kolom Kiri: Kartu Hasil UKT --}}
-        <div class="col-lg-5">
+        <div class="{{ $hasBandingArea ? 'col-lg-5' : 'col-lg-7 col-xl-6' }}">
             {{-- Kartu Hasil UKT --}}
             <div class="card result-card">
                 <div class="card-body p-4 p-xl-5">
@@ -129,6 +134,7 @@
         </div>
 
         {{-- Kolom Kanan: Banding --}}
+        @if ($hasBandingArea)
         <div class="col-lg-7">
             {{-- Ajukan Banding --}}
             @if ($pendaftaran->status === 'final_ukt' && !$pendaftaran->is_kip)
@@ -239,7 +245,13 @@
                     </div>
                 </div>
             @endif
+        </div>
+        @endif
+    </div>
 
+    {{-- Baris Aksi: Terima & Kembali (selalu di tengah) --}}
+    <div class="row justify-content-center mt-1">
+        <div class="{{ $hasBandingArea ? 'col-lg-12' : 'col-lg-7 col-xl-6 text-center' }}">
             {{-- Tombol Terima Keputusan --}}
             @if ($pendaftaran->status === 'final_ukt')
                 <div class="mt-4">

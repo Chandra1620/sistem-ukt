@@ -19,7 +19,11 @@
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: linear-gradient(135deg, #0f2b3d 0%, #0a1c2a 100%);
+            background: linear-gradient(135deg, rgba(15, 43, 61, 0.42) 0%, rgba(10, 28, 42, 0.52) 100%), url('{{ asset('images/login-bg.png') }}');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -96,12 +100,13 @@
         }
 
         .register-card {
-            background: rgba(255, 255, 255, 0.98);
-            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.62);
+            backdrop-filter: blur(20px) saturate(150%);
+            -webkit-backdrop-filter: blur(20px) saturate(150%);
             border-radius: 32px;
             padding: 40px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(255, 255, 255, 0.55);
             transition: all 0.3s ease;
             animation: fadeInUp 0.5s ease-out;
         }
@@ -125,10 +130,11 @@
 
         /* Brand Section */
         .brand-logo {
-            width: 70px;
-            height: 70px;
-            background: linear-gradient(135deg, #1e3a5f, #2d6a9f);
-            border-radius: 20px;
+            width: 110px;
+            height: 110px;
+            background: #ffffff;
+            padding: 8px;
+            border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -156,7 +162,7 @@
         }
 
         .brand-subtitle {
-            color: #64748b;
+            color: #334155;
             text-align: center;
             font-size: 0.8rem;
             margin-bottom: 28px;
@@ -174,7 +180,7 @@
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            color: #64748b;
+            color: #334155;
             margin-bottom: 8px;
         }
 
@@ -201,7 +207,7 @@
             border: 2px solid #e2e8f0;
             border-radius: 16px;
             transition: all 0.2s ease;
-            background: white;
+            background: rgba(255, 255, 255, 0.8);
         }
 
         .form-control-custom:focus {
@@ -276,7 +282,7 @@
 
         .strength-text {
             font-size: 0.65rem;
-            color: #64748b;
+            color: #334155;
         }
 
         .strength-text span {
@@ -454,7 +460,7 @@
         <div class="register-card">
             {{-- Brand --}}
             <div class="brand-logo">
-                <i class="bi bi-mortarboard-fill"></i>
+                <img src="{{ asset('images/logo.png') }}" alt="Logo Politeknik Negeri Indramayu" style="width:100%;height:100%;object-fit:contain;">
             </div>
             <div class="brand-title">Buat Akun Baru</div>
             <div class="brand-subtitle">

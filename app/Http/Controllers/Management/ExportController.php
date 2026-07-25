@@ -111,7 +111,7 @@ class ExportController extends Controller
                     $p->hasilUkt->dasar_penetapan ?? '-',
                     $p->hasilSaw ? number_format($p->hasilSaw->skor_akhir, 2) : '-',
                     $p->hasilSaw->ranking ?? '-',
-                    $p->created_at->format('d/m/Y H:i'),
+                    optional($p->created_at)->format('d/m/Y H:i') ?? '-',
                 ]);
             }
             fclose($file);

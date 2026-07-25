@@ -148,7 +148,7 @@ class ExportController extends Controller
                     $p->hasilSaw ? number_format($p->hasilSaw->skor_akhir, 6) : '-',
                     $p->hasilSaw->ranking ?? '-',
                     $p->hasilUkt && $p->hasilUkt->is_override ? 'Ya' : 'Tidak',
-                    $p->created_at->format('d/m/Y H:i'),
+                    optional($p->created_at)->format('d/m/Y H:i') ?? '-',
                 ]);
             }
 

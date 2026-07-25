@@ -154,6 +154,9 @@ Route::prefix('management')->name('management.')->middleware(['auth', 'role:mana
     Route::get('distribusi-ukt', [\App\Http\Controllers\Management\DistribusiUktController::class, 'index'])->name('distribusi-ukt.index');
     Route::get('statistik-prodi', [\App\Http\Controllers\Management\StatistikProdiController::class, 'index'])->name('statistik-prodi.index');
     Route::get('trend-tahunan', [\App\Http\Controllers\Management\TrendTahunanController::class, 'index'])->name('trend-tahunan.index');
+    Route::get('proyeksi-pendapatan', [\App\Http\Controllers\Management\ProyeksiPendapatanController::class, 'index'])->name('proyeksi-pendapatan.index');
+    Route::get('analisis-keadilan', [\App\Http\Controllers\Management\AnalisisKeadilanController::class, 'index'])->name('analisis-keadilan.index');
+    Route::get('sebaran-geografis', [\App\Http\Controllers\Management\SebaranGeografisController::class, 'index'])->name('sebaran-geografis.index');
     Route::get('/profile', [\App\Http\Controllers\ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [\App\Http\Controllers\ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [\App\Http\Controllers\ProfileController::class, 'destroy'])->name('profile.destroy');

@@ -8,14 +8,12 @@ use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithStyles;
 use Maatwebsite\Excel\Concerns\WithTitle;
-use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithColumnWidths;
 use Maatwebsite\Excel\Concerns\WithColumnFormatting;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
-use PhpOffice\PhpSpreadsheet\Style\Color;
 use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 
 class PendaftaranExport implements
@@ -24,16 +22,17 @@ class PendaftaranExport implements
     WithMapping,
     WithStyles,
     WithTitle,
-    ShouldAutoSize,
     WithColumnWidths,
     WithColumnFormatting
 {
     protected array $filters;
+    protected array $baseStatuses = [];
     protected int $no = 0;
 
-    public function __construct(array $filters = [])
+    public function __construct(array $filters = [], array $baseStatuses = [])
     {
         $this->filters = $filters;
+        $this->baseStatuses = $baseStatuses;
     }
 
     public function query()
@@ -45,6 +44,11 @@ class PendaftaranExport implements
             'hasilSaw',
         ]);
 
+        // Batasan status dasar sesuai wewenang role pemanggil (mis. panitia).
+        if (!empty($this->baseStatuses)) {
+            $query->whereIn('status', $this->baseStatuses);
+        }
+
         if (!empty($this->filters['periode_id'])) {
             $query->where('periode_id', $this->filters['periode_id']);
         }
@@ -55,6 +59,14 @@ class PendaftaranExport implements
 
         if (!empty($this->filters['status'])) {
             $query->where('status', $this->filters['status']);
+        }
+
+        if (!empty($this->filters['finalisasi'])) {
+            if ($this->filters['finalisasi'] === 'sudah') {
+                $query->whereIn('status', ['final_ukt', 'selesai']);
+            } else {
+                $query->where('status', 'hasil_awal');
+            }
         }
 
         if (!empty($this->filters['golongan'])) {
@@ -112,16 +124,11 @@ class PendaftaranExport implements
     {
         $this->no++;
 
-        // Format nominal UKT
         $nominal = $row->hasilUkt ? (float) $row->hasilUkt->nominal_final : 0;
+        $skor    = $row->hasilSaw ? (float) $row->hasilSaw->skor_akhir : 0;
 
-        // Format skor SAW
-        $skor = $row->hasilSaw ? (float) $row->hasilSaw->skor_akhir : 0;
-
-        // Determine status label
         $statusLabel = $this->getStatusLabel($row->status);
 
-        // Determine golongan final
         $golonganFinal = '-';
         if ($row->hasilUkt) {
             if ($row->is_kip) {
@@ -152,7 +159,7 @@ class PendaftaranExport implements
             $skor,
             $row->hasilSaw->ranking ?? '-',
             $row->hasilUkt && $row->hasilUkt->is_override ? 'Ya' : 'Tidak',
-            $row->created_at->format('d/m/Y H:i'),
+            optional($row->created_at)->format('d/m/Y H:i') ?? '-',
         ];
     }
 
@@ -172,8 +179,11 @@ class PendaftaranExport implements
 
     public function styles(Worksheet $sheet): array
     {
-        // Header style
-        $sheet->getStyle('1:1')->applyFromArray([
+        $highestRow    = $sheet->getHighestRow();
+        $highestColumn = $sheet->getHighestColumn();
+
+        // Header row (satu kali)
+        $sheet->getStyle('A1:' . $highestColumn . '1')->applyFromArray([
             'font' => [
                 'bold' => true,
                 'color' => ['rgb' => 'FFFFFF'],
@@ -182,7 +192,7 @@ class PendaftaranExport implements
             ],
             'fill' => [
                 'fillType' => Fill::FILL_SOLID,
-                'startColor' => ['rgb' => '1e3a5f'],
+                'startColor' => ['rgb' => '1E3A5F'],
             ],
             'alignment' => [
                 'horizontal' => Alignment::HORIZONTAL_CENTER,
@@ -195,28 +205,15 @@ class PendaftaranExport implements
                 ],
             ],
         ]);
-
-        // Set header row height
         $sheet->getRowDimension(1)->setRowHeight(30);
 
-        // Alternate row colors (zebra styling)
-        $highestRow = $sheet->getHighestRow();
-        for ($row = 2; $row <= $highestRow; $row++) {
-            if ($row % 2 == 0) {
-                $sheet->getStyle($row . ':' . $row)->applyFromArray([
-                    'fill' => [
-                        'fillType' => Fill::FILL_SOLID,
-                        'startColor' => ['rgb' => 'f8f9fa'],
-                    ],
-                ]);
-            }
-
-            // Border for all cells
-            $sheet->getStyle($row . ':' . $row)->applyFromArray([
+        // Seluruh area data dalam SATU pemanggilan (hemat memori)
+        if ($highestRow > 1) {
+            $sheet->getStyle('A2:' . $highestColumn . $highestRow)->applyFromArray([
                 'borders' => [
                     'allBorders' => [
                         'borderStyle' => Border::BORDER_THIN,
-                        'color' => ['rgb' => 'e2e8f0'],
+                        'color' => ['rgb' => 'E2E8F0'],
                     ],
                 ],
                 'alignment' => [
@@ -224,33 +221,6 @@ class PendaftaranExport implements
                 ],
             ]);
         }
-
-        // // Highlight KIP rows (light yellow)
-        // $highestColumn = $sheet->getHighestColumn();
-        // for ($row = 2; $row <= $highestRow; $row++) {
-        //     $kipValue = $sheet->getCell('K' . $row)->getValue();
-        //     if ($kipValue === 'KIP') {
-        //         $sheet->getStyle('A' . $row . ':' . $highestColumn . $row)->applyFromArray([
-        //             'fill' => [
-        //                 'fillType' => Fill::FILL_SOLID,
-        //                 'startColor' => ['rgb' => 'fef9e7'],
-        //             ],
-        //         ]);
-        //     }
-        // }
-
-        // // Highlight Final UKT rows (light green)
-        // for ($row = 2; $row <= $highestRow; $row++) {
-        //     $statusValue = $sheet->getCell('M' . $row)->getValue();
-        //     if (in_array($statusValue, ['Final UKT', 'Selesai'])) {
-        //         $sheet->getStyle('A' . $row . ':' . $highestColumn . $row)->applyFromArray([
-        //             'fill' => [
-        //                 'fillType' => Fill::FILL_SOLID,
-        //                 'startColor' => ['rgb' => 'e8f5e9'],
-        //             ],
-        //         ]);
-        //     }
-        // }
 
         return [];
     }
@@ -263,35 +233,35 @@ class PendaftaranExport implements
     public function columnWidths(): array
     {
         return [
-            'A' => 6,   // No
-            'B' => 18,  // No. Pendaftaran
-            'C' => 25,  // Nama Lengkap
-            'D' => 18,  // NIK
-            'E' => 15,  // No. HP
-            'F' => 30,  // Program Studi
-            'G' => 10,  // Jenjang
-            'H' => 15,  // Asal Daerah
-            'I' => 15,  // Provinsi
-            'J' => 15,  // Periode
-            'K' => 12,  // Status KIP
-            'L' => 15,  // No. KIP
-            'M' => 20,  // Status
-            'N' => 18,  // Gol. Rekomendasi
-            'O' => 15,  // Gol. Final
-            'P' => 15,  // Nominal UKT
-            'Q' => 20,  // Sumber Pembiayaan
-            'R' => 12,  // Skor SAW
-            'S' => 10,  // Ranking
-            'T' => 10,  // Override
-            'U' => 18,  // Tanggal Daftar
+            'A' => 6,
+            'B' => 18,
+            'C' => 25,
+            'D' => 18,
+            'E' => 15,
+            'F' => 30,
+            'G' => 10,
+            'H' => 15,
+            'I' => 15,
+            'J' => 15,
+            'K' => 12,
+            'L' => 15,
+            'M' => 20,
+            'N' => 18,
+            'O' => 15,
+            'P' => 15,
+            'Q' => 20,
+            'R' => 12,
+            'S' => 10,
+            'T' => 10,
+            'U' => 18,
         ];
     }
 
     public function columnFormats(): array
     {
         return [
-            'P' => NumberFormat::FORMAT_NUMBER_COMMA_SEPARATED1, // Nominal UKT
-            'R' => NumberFormat::FORMAT_NUMBER_00, // Skor SAW (2 desimal)
+            'P' => NumberFormat::FORMAT_NUMBER_COMMA_SEPARATED1,
+            'R' => NumberFormat::FORMAT_NUMBER_00,
         ];
     }
 }

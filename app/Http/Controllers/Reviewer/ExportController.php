@@ -9,6 +9,8 @@ use App\Models\ProgramStudi;
 use App\Models\GolonganUkt;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
+use Maatwebsite\Excel\Facades\Excel;
+use App\Exports\VerifikasiReviewerExport;
 
 class ExportController extends Controller
 {
@@ -105,7 +107,7 @@ class ExportController extends Controller
                     $verifikasi?->reviewer?->name ?? '-',
                     $verifikasi?->komentar ?? '-',
                     $p->dokumen->count(),
-                    $p->created_at->format('d/m/Y H:i'),
+                    optional($p->created_at)->format('d/m/Y H:i') ?? '-',
                 ]);
             }
             fclose($file);
@@ -116,8 +118,13 @@ class ExportController extends Controller
 
     public function excel(Request $request)
     {
-        // Reviewer export pakai CSV karena data verifikasi tidak ada di PendaftaranExport
-        return $this->csv($request);
+        $pendaftaran = $this->buildQuery($request)
+            ->with(['programStudi', 'periode', 'verifikasi.reviewer', 'dokumen'])
+            ->get();
+
+        $filename = 'data-verifikasi-reviewer-' . date('Y-m-d-His') . '.xlsx';
+
+        return Excel::download(new VerifikasiReviewerExport($pendaftaran), $filename);
     }
 
     private function buildQuery(Request $request)

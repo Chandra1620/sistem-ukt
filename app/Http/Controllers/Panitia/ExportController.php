@@ -52,7 +52,10 @@ class ExportController extends Controller
             'tanggal_selesai'
         ]);
         $filename = 'hasil-ukt-panitia-' . date('Y-m-d-His') . '.xlsx';
-        return Excel::download(new PendaftaranExport($filters), $filename);
+        return Excel::download(
+            new PendaftaranExport($filters, ['hasil_awal', 'final_ukt', 'selesai']),
+            $filename
+        );
     }
 
     public function pdf(Request $request)
@@ -124,7 +127,7 @@ class ExportController extends Controller
                     $p->hasilUkt && $p->hasilUkt->is_override ? 'Ya' : 'Tidak',
                     $p->hasilUkt->alasan_override ?? '-',
                     in_array($p->status, ['final_ukt', 'selesai']) ? 'Sudah' : 'Belum',
-                    $p->created_at->format('d/m/Y H:i'),
+                    optional($p->created_at)->format('d/m/Y H:i') ?? '-',
                 ]);
             }
             fclose($file);

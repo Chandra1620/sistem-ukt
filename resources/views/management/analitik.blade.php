@@ -97,13 +97,15 @@
                 <div class="card-body">
                     <div id="chart-distribusi-ukt" class="chart-container"></div>
                     <div class="distribusi-list mt-3">
+                        @php
+                            $paletteGol = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#ef4444', '#ec489a', '#6366f1'];
+                            $golIdx = 0;
+                        @endphp
                         @foreach ($distribusiUkt as $d)
+                            @php $warnaDot = $d['is_kip'] ? '#f59e0b' : $paletteGol[$golIdx++ % count($paletteGol)]; @endphp
                             <div class="distribusi-item">
                                 <div class="distribusi-label">
-                                    <span class="golongan-dot"
-                                        style="background: {{ $d['is_kip'] ? '#f59e0b' : '' }};
-    {{ !$d['is_kip'] ? '' : '' }}">
-                                    </span>
+                                    <span class="golongan-dot" style="background: {{ $warnaDot }};"></span>
                                     <span class="small">{{ $d['golongan'] }}</span>
                                 </div>
                                 <div class="distribusi-value">
@@ -198,7 +200,8 @@
                         <h6 class="fw-semibold mb-0">Pekerjaan Orang Tua</h6>
                     </div>
                     <div class="chart-badge">
-                        <i class="bi bi-person"></i> Pekerjaan Ayah
+                        <i class="bi bi-gender-male text-primary"></i> Ayah
+                        <i class="bi bi-gender-female ms-2" style="color:#ec4899;"></i> Ibu
                     </div>
                 </div>
                 <div class="card-body p-0">
@@ -207,21 +210,26 @@
                             @foreach ($distribusiPekerjaan as $p)
                                 <div class="pekerjaan-item">
                                     <div class="pekerjaan-icon">
-                                        <i class="bi bi-person-badge"></i>
+                                        <i class="bi bi-briefcase"></i>
                                     </div>
                                     <div class="pekerjaan-info">
                                         <div class="pekerjaan-name">
-                                            {{ ucfirst(str_replace('_', ' ', $p->pekerjaan_ayah)) }}</div>
+                                            {{ ucfirst(str_replace('_', ' ', $p['pekerjaan'])) }}</div>
                                         <div class="pekerjaan-progress">
                                             <div class="progress-bar-small">
                                                 <div class="progress-fill-small"
-                                                    style="width: {{ $distribusiPekerjaan->max('total') > 0 ? round(($p->total / $distribusiPekerjaan->max('total')) * 100, 1) : 0 }}%">
+                                                    style="width: {{ $distribusiPekerjaan->max('total') > 0 ? round(($p['total'] / $distribusiPekerjaan->max('total')) * 100, 1) : 0 }}%">
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
+                                    <span class="gender-count total-count" title="Total (Ayah + Ibu)"><i
+                                            class="bi bi-people-fill"></i> {{ $p['total'] }}</span>
                                     <div class="pekerjaan-total">
-                                        <span class="pekerjaan-count">{{ $p->total }}</span>
+                                        <span class="gender-count ayah-count" title="Ayah"><i
+                                                class="bi bi-gender-male"></i> {{ $p['ayah'] }}</span>
+                                        <span class="gender-count ibu-count" title="Ibu"><i
+                                                class="bi bi-gender-female"></i> {{ $p['ibu'] }}</span>
                                     </div>
                                 </div>
                             @endforeach
@@ -707,6 +715,41 @@
             background: #f1f5f9;
             padding: 2px 8px;
             border-radius: 40px;
+        }
+
+        .pekerjaan-total {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            align-items: flex-end;
+        }
+
+        .gender-count {
+            font-weight: 700;
+            font-size: 0.72rem;
+            padding: 2px 8px;
+            border-radius: 40px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            min-width: 48px;
+            justify-content: center;
+        }
+
+        .ayah-count {
+            background: #dbeafe;
+            color: #2563eb;
+        }
+
+        .ibu-count {
+            background: #fce7f3;
+            color: #db2777;
+        }
+
+        .total-count {
+            background: #f1f5f9;
+            color: #1e293b;
+            border: 1px solid #e2e8f0;
         }
 
         /* Trend Table */
@@ -1219,18 +1262,18 @@
         </div>
         <div class="daerah-list">
             ${data.map((d, i) => `
-                        <div class="daerah-item">
-                            <span class="daerah-rank">${i + 1}</span>
-                            <span class="daerah-name">${d.daerah || 'Tidak diketahui'}</span>
-                            <div class="daerah-bar">
-                                <div class="daerah-fill"
-                                    style="width:${totalProvinsi > 0 ? ((d.total / totalProvinsi) * 100).toFixed(1) : 0}%">
-                                </div>
-                            </div>
-                            <span class="daerah-count">${d.total}</span>
-                            <span class="daerah-persen">${totalProvinsi > 0 ? ((d.total / totalProvinsi) * 100).toFixed(1) : 0}%</span>
-                        </div>
-                    `).join('')}
+                                                    <div class="daerah-item">
+                                                        <span class="daerah-rank">${i + 1}</span>
+                                                        <span class="daerah-name">${d.daerah || 'Tidak diketahui'}</span>
+                                                        <div class="daerah-bar">
+                                                            <div class="daerah-fill"
+                                                                style="width:${totalProvinsi > 0 ? ((d.total / totalProvinsi) * 100).toFixed(1) : 0}%">
+                                                            </div>
+                                                        </div>
+                                                        <span class="daerah-count">${d.total}</span>
+                                                        <span class="daerah-persen">${totalProvinsi > 0 ? ((d.total / totalProvinsi) * 100).toFixed(1) : 0}%</span>
+                                                    </div>
+                                                `).join('')}
         </div>`;
                 } else {
                     detail.innerHTML = '<div class="text-center text-muted py-2 small">Belum ada rincian daerah</div>';

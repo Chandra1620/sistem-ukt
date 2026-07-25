@@ -98,6 +98,48 @@
         <span>Laporan</span>
     </div>
 
+    <a href="{{ route('management.proyeksi-pendapatan.index') }}"
+        class="nav-link proyeksi-link {{ request()->routeIs('management.proyeksi-pendapatan.*') ? 'active' : '' }}">
+        <div class="nav-icon-wrapper">
+            <i class="bi bi-cash-stack"></i>
+        </div>
+        <span class="nav-text nav-text-multiline">
+            <span class="nav-line">Proyeksi</span>
+            <span class="nav-line">Pendapatan</span>
+        </span>
+        @if (request()->routeIs('management.proyeksi-pendapatan.*'))
+            <div class="nav-active-indicator"></div>
+        @endif
+    </a>
+
+    <a href="{{ route('management.analisis-keadilan.index') }}"
+        class="nav-link analisis-keadilan-link {{ request()->routeIs('management.analisis-keadilan.*') ? 'active' : '' }}">
+        <div class="nav-icon-wrapper">
+            <i class="bi bi-shield-check"></i>
+        </div>
+        <span class="nav-text nav-text-multiline">
+            <span class="nav-line">Analisis</span>
+            <span class="nav-line">Keadilan</span>
+        </span>
+        @if (request()->routeIs('management.analisis-keadilan.*'))
+            <div class="nav-active-indicator"></div>
+        @endif
+    </a>
+
+    <a href="{{ route('management.sebaran-geografis.index') }}"
+        class="nav-link sebaran-geografis-link {{ request()->routeIs('management.sebaran-geografis.*') ? 'active' : '' }}">
+        <div class="nav-icon-wrapper">
+            <i class="bi bi-geo-alt"></i>
+        </div>
+        <span class="nav-text nav-text-multiline">
+            <span class="nav-line">Sebaran</span>
+            <span class="nav-line">Geografis</span>
+        </span>
+        @if (request()->routeIs('management.sebaran-geografis.*'))
+            <div class="nav-active-indicator"></div>
+        @endif
+    </a>
+
     <a href="{{ route('management.export.index') }}"
         class="nav-link {{ request()->routeIs('management.export.*') ? 'active' : '' }}">
         <div class="nav-icon-wrapper">

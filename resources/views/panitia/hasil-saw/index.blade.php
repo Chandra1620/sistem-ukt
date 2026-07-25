@@ -130,7 +130,7 @@
                                 </td>
                                 <td data-label="Skor SAW">
                                     <div class="skor-badge">
-                                        {{ number_format($h->skor_akhir, 4) }}
+                                        {{ number_format($h->skor_akhir, 2) }}
                                     </div>
                                 </td>
                                 <td data-label="Gol. Rekomendasi">
