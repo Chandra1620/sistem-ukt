@@ -2,11 +2,10 @@
 
 namespace App\Jobs;
 
-use App\Jobs\KirimResetLinkImport;
 use App\Models\ImportLog;
-use App\Models\Kriteria;
 use App\Models\Pendaftaran;
 use App\Models\ProgramStudi;
+use App\Models\Kriteria;
 use App\Models\User;
 use App\Services\SawService;
 use App\Support\NormalisasiKolom;
@@ -17,10 +16,10 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Hash;
 
 /**
  * Import ETL versi BULK.
@@ -47,6 +46,10 @@ class ProsesImportEtl implements ShouldQueue
 
     // Ukuran chunk insert untuk menjaga penggunaan memori tetap stabil.
     private const CHUNK = 500;
+
+    // Cost bcrypt untuk akun impor (akun sementara & wajib ganti password).
+    // Turunkan (mis. 6) bila ingin impor akun berbasis NIK lebih cepat lagi.
+    private const HASH_ROUNDS = 8;
 
     public function __construct(
         public array      $rows,
@@ -79,9 +82,36 @@ class ProsesImportEtl implements ShouldQueue
         $prodiList = ProgramStudi::all(['id', 'nama'])
             ->map(fn($p) => ['id' => $p->id, 'nama' => $p->nama, 'lower' => strtolower($p->nama)]);
 
-        // NIK & No HP yang sudah ada di DB (set untuk cek duplikat O(1))
-        $nikTerdaftar = DB::table('pendaftaran')->pluck('nik')->flip();
-        $hpTerdaftar  = DB::table('pendaftaran')->whereNotNull('no_hp')->pluck('no_hp')->flip();
+        // NIK & No HP yang sudah ada di DB (set untuk cek duplikat O(1)).
+        // PENTING: hanya query nilai yang MUNCUL di file ini, bukan seluruh tabel.
+        // Dengan begitu biaya cek duplikat proporsional ke ukuran batch, sehingga
+        // impor ke-N tetap secepat impor pertama (konsisten walau data historis
+        // sudah ribuan).
+        $nikFile = [];
+        $hpFile  = [];
+        foreach ($this->rows as $r) {
+            $n = isset($r['nik']) ? (string) $r['nik'] : '';
+            if ($n !== '') {
+                $nikFile[$n] = true;
+            }
+            $h = trim((string) ($r['no_hp'] ?? ''));
+            if ($h !== '') {
+                $hpFile[$h] = true;
+            }
+        }
+        // CATATAN: array_keys() meng-cast key numerik menjadi int, sehingga NIK/No HP
+        // dikirim sebagai bigint. Kolom nik/no_hp bertipe VARCHAR di PostgreSQL, jadi
+        // nilai WAJIB di-cast kembali ke string; kalau tidak akan muncul error
+        // "operator does not exist: character varying = bigint".
+        $nikKeys = array_map('strval', array_keys($nikFile));
+        $hpKeys  = array_map('strval', array_keys($hpFile));
+        $nikTerdaftar = empty($nikKeys)
+            ? collect()
+            : DB::table('pendaftaran')->whereIn('nik', $nikKeys)->pluck('nik')->flip();
+        $hpTerdaftar = empty($hpKeys)
+            ? collect()
+            : DB::table('pendaftaran')->whereNotNull('no_hp')
+                ->whereIn('no_hp', $hpKeys)->pluck('no_hp')->flip();
 
         // Role mahasiswa (spatie)
         $mahasiswaRoleId = DB::table('roles')->where('name', 'mahasiswa')->value('id');
@@ -181,28 +211,27 @@ class ProsesImportEtl implements ShouldQueue
         $now            = now();
         $pendaftaranIds = [];
         $resetEmails    = [];
+
         // Pra-hash password DI LUAR transaksi, pakai cost ringan (rounds 10).
         // Akun impor sementara & wajib ganti password; login tetap valid karena
         // cost tertanam di hash. Registrasi normal tetap pakai BCRYPT_ROUNDS global.
         $__t0 = microtime(true);
+        // Akun ber-email asli akan MENGATUR ulang password via reset link, jadi
+        // password awalnya throwaway acak yang tak pernah dipakai. Cukup di-hash
+        // SEKALI lalu dipakai bersama -> menghapus ribuan pemanggilan bcrypt
+        // (aman: plaintext acak & langsung dibuang). Akun placeholder (@import.ukt)
+        // tetap memakai NIK sebagai password awal, jadi di-hash per akun.
+        $sharedThrowawayHash = Hash::make(Str::random(24), ['rounds' => self::HASH_ROUNDS]);
         foreach ($emailsBaris as $emailKey => $infoKey) {
-            $emailsBaris[$emailKey]['password'] = Hash::make(
-                ($infoKey['hasRealEmail'] ?? false) ? Str::random(16) : $infoKey['nik'],
-                ['rounds' => 8]
-            );
+            $emailsBaris[$emailKey]['password'] = ($infoKey['hasRealEmail'] ?? false)
+                ? $sharedThrowawayHash
+                : Hash::make($infoKey['nik'], ['rounds' => self::HASH_ROUNDS]);
         }
         $__tHash = microtime(true);
 
         DB::transaction(function () use (
-            $valid,
-            $emailsBaris,
-            $periodeId,
-            $mahasiswaRoleId,
-            $tahun,
-            &$counter,
-            $now,
-            &$pendaftaranIds,
-            &$resetEmails
+            $valid, $emailsBaris, $periodeId, $mahasiswaRoleId,
+            $tahun, &$counter, $now, &$pendaftaranIds, &$resetEmails
         ) {
             // ---- 3a. User (bulk) ----
             $emailAda = DB::table('users')
@@ -217,7 +246,7 @@ class ProsesImportEtl implements ShouldQueue
                 $userBaru[$email] = [
                     'name'       => $info['name'],
                     'email'      => $email,
-                    'password'   => $info['password'],
+                    'password'   => $info['password'],   // sudah di-hash SEBELUM transaksi
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
@@ -321,17 +350,23 @@ class ProsesImportEtl implements ShouldQueue
         }
         $__tSaw = microtime(true);
 
-        // ---- 3f. Kirim reset link ASYNC (job terpisah) agar impor tidak menunggu ----
+        // ---- 3f. Finalisasi otomatis: hasil impor LANGSUNG final ----
+        // Data hasil impor sudah lengkap & dianggap terverifikasi, sehingga tidak
+        // perlu menunggu finalisasi panitia. Status langsung 'final_ukt' (setara
+        // aksi finalisasi panitia): mahasiswa bisa langsung melihat, menyetujui,
+        // atau mengajukan banding. Dikerjakan BULK agar tetap cepat & konsisten.
+        if (!empty($pendaftaranIds)) {
+            $this->finalisasiLangsung($pendaftaranIds, (int) $log->user_id, $now);
+        }
+
+        // ---- 3g. Kirim reset link ASYNC (job terpisah) agar impor tidak menunggu ----
         if (!empty($resetEmails)) {
             KirimResetLinkImport::dispatch($resetEmails);
         }
 
         Log::info(sprintf(
             '[ETL][PROFIL] hash=%.1fd  insert=%.1fd  saw=%.1fd  (reset link async, %d email)',
-            $__tHash - $__t0,
-            $__tTx - $__tHash,
-            $__tSaw - $__tTx,
-            count($resetEmails)
+            $__tHash - $__t0, $__tTx - $__tHash, $__tSaw - $__tTx, count($resetEmails)
         ));
 
         $this->selesaikanLog($log, count($pendaftaranIds), $gagal, $duplikat, $errors, $mulai);
@@ -387,6 +422,91 @@ class ProsesImportEtl implements ShouldQueue
         if (in_array($val, ['1', 'ya', 'yes', 'true'])) return true;
         if (in_array($val, ['0', 'tidak', 'no', 'false'])) return false;
         return null;
+    }
+
+    /**
+     * Finalisasi otomatis hasil impor -> status 'final_ukt' tanpa perlu panitia.
+     * Semua operasi dilakukan secara BULK (tanpa query per baris) agar performa
+     * tetap konsisten untuk ribuan pendaftaran: menyetel field finalisasi pada
+     * hasil_ukt, mengubah status pendaftaran, mencatat riwayat status, dan membuat
+     * notifikasi in-app. Email pemberitahuan sengaja TIDAK dikirim massal di sini
+     * demi menjaga performa; mahasiswa ber-email asli tetap menerima email reset
+     * password dari langkah impor.
+     *
+     * @param array<int,int> $pendaftaranIds
+     */
+    private function finalisasiLangsung(array $pendaftaranIds, int $diubahOleh, $now): void
+    {
+        DB::transaction(function () use ($pendaftaranIds, $diubahOleh, $now) {
+            foreach (array_chunk($pendaftaranIds, self::CHUNK) as $chunk) {
+                // 1) Tandai hasil_ukt sebagai final
+                DB::table('hasil_ukt')
+                    ->whereIn('pendaftaran_id', $chunk)
+                    ->update([
+                        'finalisasi_oleh' => $diubahOleh,
+                        'finalisasi_at'   => $now,
+                        'updated_at'      => $now,
+                    ]);
+
+                // 2) Ubah status pendaftaran -> final_ukt
+                DB::table('pendaftaran')
+                    ->whereIn('id', $chunk)
+                    ->update([
+                        'status'     => 'final_ukt',
+                        'updated_at' => $now,
+                    ]);
+
+                // 3) Catat riwayat status (audit trail, sama seperti finalisasi panitia)
+                $riwayatRows = [];
+                foreach ($chunk as $pid) {
+                    $riwayatRows[] = [
+                        'pendaftaran_id' => $pid,
+                        'status_lama'    => 'hasil_awal',
+                        'status_baru'    => 'final_ukt',
+                        'keterangan'     => 'UKT difinalisasi otomatis saat impor ETL',
+                        'diubah_oleh'    => $diubahOleh,
+                        'created_at'     => $now,
+                        'updated_at'     => $now,
+                    ];
+                }
+                DB::table('riwayat_status')->insert($riwayatRows);
+            }
+
+            // 4) Notifikasi in-app untuk tiap mahasiswa (bulk, tanpa email massal)
+            $baris = DB::table('pendaftaran as p')
+                ->join('hasil_ukt as h', 'h.pendaftaran_id', '=', 'p.id')
+                ->whereIn('p.id', $pendaftaranIds)
+                ->get(['p.id', 'p.user_id', 'h.golongan_final', 'h.nominal_final']);
+
+            $notifRows = [];
+            foreach ($baris as $b) {
+                $nominalFormat = 'Rp ' . number_format((float) $b->nominal_final, 0, ',', '.');
+                $golLabel = ((int) $b->golongan_final === 0)
+                    ? 'KIP'
+                    : 'Golongan ' . $b->golongan_final;
+                $notifRows[] = [
+                    'user_id'    => $b->user_id,
+                    'judul'      => 'UKT Telah Difinalisasi',
+                    'pesan'      => "UKT Anda telah difinalisasi: {$golLabel} ({$nominalFormat})",
+                    'tipe'       => 'hasil_ukt',
+                    'data'       => json_encode([
+                        'pendaftaran_id' => $b->id,
+                        'golongan'       => (int) $b->golongan_final,
+                    ]),
+                    // Kolom 'dibaca' sengaja TIDAK diisi -> otomatis pakai DEFAULT
+                    // false dari skema. Query builder mem-binding PHP false sebagai
+                    // integer 0 sehingga PostgreSQL menolak ("column dibaca is of type
+                    // boolean but expression is of type integer").
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+            foreach (array_chunk($notifRows, self::CHUNK) as $chunk) {
+                DB::table('notifikasi')->insert($chunk);
+            }
+        });
+
+        Log::info('[ETL][FINAL] ' . count($pendaftaranIds) . ' pendaftaran langsung difinalisasi (status final_ukt).');
     }
 
     private function selesaikanLog(ImportLog $log, int $berhasil, int $gagal, int $duplikat, array $errors, float $mulai): void

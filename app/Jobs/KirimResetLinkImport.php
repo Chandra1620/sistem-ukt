@@ -26,17 +26,13 @@ class KirimResetLinkImport implements ShouldQueue
 
     public function handle(): void
     {
-        $ok = 0;
-        $gagal = 0;
+        // Fan-out: tiap email menjadi job tersendiri agar bisa diproses PARALEL
+        // oleh banyak worker, retry mandiri saat SMTP gagal/kena limit, dan
+        // kegagalan satu email tidak menggagalkan yang lain. Job ini sendiri
+        // selesai seketika (hanya menjadwalkan), jadi tidak ada loop menunggu.
         foreach ($this->emails as $email) {
-            try {
-                Password::sendResetLink(['email' => $email]);
-                $ok++;
-            } catch (\Throwable $e) {
-                $gagal++;
-                Log::warning("Gagal kirim reset link ke {$email}: " . $e->getMessage());
-            }
+            KirimResetLink::dispatch($email);
         }
-        Log::info("[ETL][RESET] Reset link terkirim={$ok}, gagal={$gagal}");
+        Log::info('[ETL][RESET] ' . count($this->emails) . ' job kirim reset link dijadwalkan (paralel per-email).');
     }
 }
