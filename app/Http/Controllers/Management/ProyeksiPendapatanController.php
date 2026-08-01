@@ -7,6 +7,7 @@ use App\Models\Pendaftaran;
 use App\Models\PeriodeSeleksi;
 use App\Models\GolonganUkt;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class ProyeksiPendapatanController extends Controller
 {
@@ -15,6 +16,11 @@ class ProyeksiPendapatanController extends Controller
         $periodeAktif  = PeriodeSeleksi::where('status', 'aktif')->first();
         $daftarPeriode = PeriodeSeleksi::orderByDesc('tahun')->get();
         $periodeId     = $request->input('periode_id');
+
+        $__cacheKey = 'mgmt.proyeksi.' . ($periodeId ?: 'all');
+        if ($__cached = Cache::get($__cacheKey)) {
+            return view('management.proyeksi-pendapatan', $__cached);
+        }
 
         // UKT "penuh" sebagai acuan subsidi = nominal golongan tertinggi
         $uktPenuh = (float) (GolonganUkt::max('nominal') ?? 0);
@@ -98,7 +104,7 @@ class ProyeksiPendapatanController extends Controller
             'totals' => $perGolongan->pluck('total')->map(fn($v) => round($v))->values(),
         ];
 
-        return view('management.proyeksi-pendapatan', compact(
+        $__data = compact(
             'periodeAktif',
             'daftarPeriode',
             'periodeId',
@@ -114,6 +120,9 @@ class ProyeksiPendapatanController extends Controller
             'perGolongan',
             'prodiChart',
             'golonganChart'
-        ));
+        );
+        Cache::put($__cacheKey, $__data, now()->addMinutes(5));
+
+        return view('management.proyeksi-pendapatan', $__data);
     }
 }

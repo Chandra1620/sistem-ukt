@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Pendaftaran;
 use App\Models\PeriodeSeleksi;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class SebaranGeografisController extends Controller
 {
@@ -14,6 +15,11 @@ class SebaranGeografisController extends Controller
         $periodeAktif  = PeriodeSeleksi::where('status', 'aktif')->first();
         $daftarPeriode = PeriodeSeleksi::orderByDesc('tahun')->get();
         $periodeId     = $request->input('periode_id');
+
+        $__cacheKey = 'mgmt.sebaran.' . ($periodeId ?: 'all');
+        if ($__cached = Cache::get($__cacheKey)) {
+            return view('management.sebaran-geografis', $__cached);
+        }
 
         $pendaftaran = Pendaftaran::with(['dataEkonomi', 'hasilUkt'])
             ->where('status', '!=', 'draft')
@@ -64,7 +70,7 @@ class SebaranGeografisController extends Controller
             'data'   => $perProvinsi->take(10)->pluck('jumlah')->values(),
         ];
 
-        return view('management.sebaran-geografis', compact(
+        $__data = compact(
             'periodeAktif',
             'daftarPeriode',
             'periodeId',
@@ -76,6 +82,9 @@ class SebaranGeografisController extends Controller
             'kotaTerbanyak',
             'treemapData',
             'barTop'
-        ));
+        );
+        Cache::put($__cacheKey, $__data, now()->addMinutes(5));
+
+        return view('management.sebaran-geografis', $__data);
     }
 }

@@ -61,18 +61,24 @@ class VerifikasiController extends Controller
 
     public function approve(Request $request, Pendaftaran $pendaftaran)
     {
-        // Penjagaan status: hanya boleh dari "menunggu_verifikasi"
-        if ($pendaftaran->status !== 'menunggu_verifikasi') {
-            return back()->with('error', 'Pendaftaran tidak dalam status menunggu verifikasi.');
-        }
-
         $request->validate([
             'komentar' => 'nullable|string|max:1000',
         ]);
 
-        $oldStatus = $pendaftaran->status;
+        $konflik = false;
 
-        DB::transaction(function () use ($pendaftaran, $request, $oldStatus) {
+        DB::transaction(function () use ($pendaftaran, $request, &$konflik) {
+            // Kunci baris agar reviewer lain menunggu (anti-nabrak / race condition)
+            $pendaftaran = Pendaftaran::whereKey($pendaftaran->id)->lockForUpdate()->first();
+
+            // Penjagaan status di dalam transaksi terkunci
+            if (!$pendaftaran || $pendaftaran->status !== 'menunggu_verifikasi') {
+                $konflik = true;
+                return;
+            }
+
+            $oldStatus = $pendaftaran->status;
+
             $pendaftaran->dokumen()->update(['status' => 'valid']);
 
             VerifikasiDokumen::create([
@@ -93,6 +99,10 @@ class VerifikasiController extends Controller
                 'diubah_oleh'    => Auth::id(),
             ]);
         });
+
+        if ($konflik) {
+            return back()->with('error', 'Pendaftaran sudah diproses reviewer lain atau tidak dalam status menunggu verifikasi.');
+        }
 
         // Jalankan perhitungan SAW LANGSUNG (tanpa perlu queue worker)
         try {
@@ -116,17 +126,23 @@ class VerifikasiController extends Controller
 
     public function reject(Request $request, Pendaftaran $pendaftaran)
     {
-        if ($pendaftaran->status !== 'menunggu_verifikasi') {
-            return back()->with('error', 'Pendaftaran tidak dalam status menunggu verifikasi.');
-        }
-
         $request->validate([
             'komentar' => 'required|string|max:1000',
         ]);
 
-        $oldStatus = $pendaftaran->status;
+        $konflik = false;
 
-        DB::transaction(function () use ($pendaftaran, $request, $oldStatus) {
+        DB::transaction(function () use ($pendaftaran, $request, &$konflik) {
+            // Kunci baris agar reviewer lain menunggu (anti-nabrak / race condition)
+            $pendaftaran = Pendaftaran::whereKey($pendaftaran->id)->lockForUpdate()->first();
+
+            if (!$pendaftaran || $pendaftaran->status !== 'menunggu_verifikasi') {
+                $konflik = true;
+                return;
+            }
+
+            $oldStatus = $pendaftaran->status;
+
             $pendaftaran->dokumen()->update(['status' => 'invalid']);
 
             VerifikasiDokumen::create([
@@ -147,6 +163,10 @@ class VerifikasiController extends Controller
                 'diubah_oleh'    => Auth::id(),
             ]);
         });
+
+        if ($konflik) {
+            return back()->with('error', 'Pendaftaran sudah diproses reviewer lain atau tidak dalam status menunggu verifikasi.');
+        }
 
         NotifikasiService::dokumenDitolak($pendaftaran, $request->komentar);
 

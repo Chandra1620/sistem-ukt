@@ -203,7 +203,7 @@
                                 <td class="py-3 px-4 fw-semibold">
                                     <span class="badge rounded-pill px-3 py-2"
                                         style="background: {{ $g['golongan'] === 0 ? '#10b98120' : '#3b82f620' }}; color: {{ $g['golongan'] === 0 ? '#10b981' : '#3b82f6' }};">
-                                        {{ $g['golongan'] === 0 ? '🎓 KIP' : '💰 Golongan ' . $g['golongan'] }}
+                                        {{ $g['golongan'] === 0 ? 'KIP' : 'Golongan ' . $g['golongan'] }}
                                     </span>
                                 </td>
                                 <td class="py-3">

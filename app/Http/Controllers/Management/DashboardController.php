@@ -9,12 +9,20 @@ use App\Models\Pendaftaran;
 use App\Models\PeriodeSeleksi;
 use App\Models\ProgramStudi;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class DashboardController extends Controller
 {
     public function index()
     {
         $periode = PeriodeSeleksi::where('status', 'aktif')->first();
+
+        // Cache dashboard Management (data jarang berubah). Refresh paksa dengan
+        // "php artisan cache:clear".
+        $__cacheKey = 'mgmt.dashboard.' . ($periode?->id ?? 'all');
+        if ($__cached = Cache::get($__cacheKey)) {
+            return view('management.dashboard', $__cached);
+        }
 
         $stats = [
             'total_pendaftar'     => Pendaftaran::count(),
@@ -61,7 +69,7 @@ class DashboardController extends Controller
             ->orderBy('created_at')
             ->get();
 
-        return view('management.dashboard', compact(
+        $__data = compact(
             'periode',
             'stats',
             'distribusiUkt',
@@ -70,6 +78,9 @@ class DashboardController extends Controller
             'statsEkonomi',
             'trendPeriode',
             'trendTahunan'
-        ));
+        );
+        Cache::put($__cacheKey, $__data, now()->addMinutes(5));
+
+        return view('management.dashboard', $__data);
     }
 }

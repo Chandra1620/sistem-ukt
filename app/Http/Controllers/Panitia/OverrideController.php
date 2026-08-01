@@ -16,10 +16,6 @@ class OverrideController extends Controller
 {
     public function override(Request $request, Pendaftaran $pendaftaran)
     {
-        if (!in_array($pendaftaran->status, ['hasil_awal', 'final_ukt'])) {
-            return back()->with('error', 'Override hanya dapat dilakukan pada status Hasil Awal atau Final UKT.');
-        }
-
         $request->validate([
             'golongan_baru' => 'required|integer|min:1|max:8',
             'alasan'        => 'required|string|min:20|max:1000',
@@ -42,30 +38,46 @@ class OverrideController extends Controller
             'is_override'    => $hasilUkt->is_override,
         ];
 
-        // Update hasil UKT
-        $hasilUkt->update([
-            'golongan_final'  => $request->golongan_baru,
-            'nominal_final'   => $nominalBaru,
-            'is_override'     => DB::raw('TRUE'),
-            'alasan_override' => $request->alasan,
-            'override_oleh'   => Auth::id(),
-            'override_at'     => now(),
-        ]);
+        $konflik = false;
 
-        // Simpan status lama SEBELUM diubah
-        $statusLama = $pendaftaran->status;
+        DB::transaction(function () use ($pendaftaran, $hasilUkt, $request, $nominalBaru, $golonganLama, &$konflik) {
+            // Kunci baris agar panitia lain menunggu (anti-nabrak / race condition)
+            $locked = Pendaftaran::whereKey($pendaftaran->id)->lockForUpdate()->first();
 
-        if ($statusLama === 'hasil_awal') {
-            $pendaftaran->update(['status' => 'final_ukt']);
+            if (!$locked || !in_array($locked->status, ['hasil_awal', 'final_ukt'])) {
+                $konflik = true;
+                return;
+            }
+
+            // Update hasil UKT
+            $hasilUkt->update([
+                'golongan_final'  => $request->golongan_baru,
+                'nominal_final'   => $nominalBaru,
+                'is_override'     => DB::raw('TRUE'),
+                'alasan_override' => $request->alasan,
+                'override_oleh'   => Auth::id(),
+                'override_at'     => now(),
+            ]);
+
+            // Simpan status lama SEBELUM diubah
+            $statusLama = $locked->status;
+
+            if ($statusLama === 'hasil_awal') {
+                $locked->update(['status' => 'final_ukt']);
+            }
+
+            RiwayatStatus::create([
+                'pendaftaran_id' => $locked->id,
+                'status_lama'    => $statusLama,
+                'status_baru'    => 'final_ukt',
+                'keterangan'     => 'Override UKT: Golongan ' . $golonganLama . ' → ' . $request->golongan_baru,
+                'diubah_oleh'    => Auth::id(),
+            ]);
+        });
+
+        if ($konflik) {
+            return back()->with('error', 'Override gagal: status pendaftaran sudah berubah (diproses panitia lain).');
         }
-
-        RiwayatStatus::create([
-            'pendaftaran_id' => $pendaftaran->id,
-            'status_lama'    => $statusLama, // benar
-            'status_baru'    => 'final_ukt',
-            'keterangan'     => 'Override UKT: Golongan ' . $golonganLama . ' → ' . $request->golongan_baru,
-            'diubah_oleh'    => Auth::id(),
-        ]);
 
         // Kirim notifikasi
         NotifikasiService::uktDifinalisasi(

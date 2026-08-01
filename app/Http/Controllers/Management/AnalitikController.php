@@ -8,6 +8,7 @@ use App\Models\HasilUkt;
 use App\Models\Pendaftaran;
 use App\Models\PeriodeSeleksi;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class AnalitikController extends Controller
 {
@@ -15,6 +16,13 @@ class AnalitikController extends Controller
     {
         $periode   = PeriodeSeleksi::where('status', 'aktif')->first();
         $periodeId = $periode?->id;
+
+        // Cache hasil analitik (data jarang berubah). Jalankan
+        // "php artisan cache:clear" untuk memaksa refresh setelah impor/finalisasi.
+        $__cacheKey = 'mgmt.analitik.' . ($periodeId ?? 'all');
+        if ($__cached = Cache::get($__cacheKey)) {
+            return view('management.analitik', $__cached);
+        }
 
         // Filter dipakai ulang untuk query berbasis relasi "pendaftaran".
         // hasil_ukt & data_ekonomi tidak punya periode_id; keterkaitan
@@ -95,8 +103,8 @@ class AnalitikController extends Controller
 
         // Trend tahunan - sengaja lintas semua periode, tapi draft tidak dihitung
         $trendTahunan = PeriodeSeleksi::withCount([
-            'pendaftaran' => fn($q) => $q->where('status', '!=', 'draft'),
-        ])
+                'pendaftaran' => fn($q) => $q->where('status', '!=', 'draft'),
+            ])
             ->orderBy('tahun')
             ->get();
 
@@ -132,7 +140,7 @@ class AnalitikController extends Controller
             ->sortByDesc('total')
             ->values();
 
-        return view('management.analitik', compact(
+        $__data = compact(
             'periode',
             'distribusiUkt',
             'distribusiProdi',
@@ -142,7 +150,10 @@ class AnalitikController extends Controller
             'trendTahunan',
             'distribusiPekerjaan',
             'totalPendaftar'
-        ));
+        );
+        Cache::put($__cacheKey, $__data, now()->addMinutes(5));
+
+        return view('management.analitik', $__data);
     }
 
     public function wilayahDetail(Request $request)

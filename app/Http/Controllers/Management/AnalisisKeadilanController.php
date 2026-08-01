@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Pendaftaran;
 use App\Models\PeriodeSeleksi;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class AnalisisKeadilanController extends Controller
 {
@@ -14,6 +15,11 @@ class AnalisisKeadilanController extends Controller
         $periodeAktif  = PeriodeSeleksi::where('status', 'aktif')->first();
         $daftarPeriode = PeriodeSeleksi::orderByDesc('tahun')->get();
         $periodeId     = $request->input('periode_id');
+
+        $__cacheKey = 'mgmt.keadilan.' . ($periodeId ?: 'all');
+        if ($__cached = Cache::get($__cacheKey)) {
+            return view('management.analisis-keadilan', $__cached);
+        }
 
         // Hanya pendaftar yang punya data ekonomi DAN hasil UKT (bukan draft)
         $pendaftaran = Pendaftaran::with(['hasilUkt', 'dataEkonomi', 'programStudi'])
@@ -55,9 +61,7 @@ class AnalisisKeadilanController extends Controller
         if ($n > 1) {
             $meanX = (float) $items->avg('income');
             $meanY = (float) $items->avg('nominal');
-            $num = 0.0;
-            $denX = 0.0;
-            $denY = 0.0;
+            $num = 0.0; $denX = 0.0; $denY = 0.0;
             foreach ($items as $it) {
                 $dx = $it['income'] - $meanX;
                 $dy = $it['nominal'] - $meanY;
@@ -144,7 +148,7 @@ class AnalisisKeadilanController extends Controller
             }
         }
 
-        return view('management.analisis-keadilan', compact(
+        $__data = compact(
             'periodeAktif',
             'daftarPeriode',
             'periodeId',
@@ -162,6 +166,9 @@ class AnalisisKeadilanController extends Controller
             'uktTerlaluRendah',
             'scatterNormal',
             'scatterAnomali'
-        ));
+        );
+        Cache::put($__cacheKey, $__data, now()->addMinutes(5));
+
+        return view('management.analisis-keadilan', $__data);
     }
 }

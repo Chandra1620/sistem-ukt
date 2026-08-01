@@ -7,12 +7,18 @@ use App\Models\Pendaftaran;
 use App\Models\ProgramStudi;
 use App\Models\PeriodeSeleksi;
 use App\Models\HasilUkt;
+use Illuminate\Support\Facades\Cache;
 
 class StatistikProdiController extends Controller
 {
     public function index()
     {
         $periode = PeriodeSeleksi::where('status', 'aktif')->first();
+
+        $__cacheKey = 'mgmt.statistik-prodi.' . ($periode?->id ?? 'all');
+        if ($__cached = Cache::get($__cacheKey)) {
+            return view('management.statistik-prodi', $__cached);
+        }
 
         $programStudi = ProgramStudi::aktif()
             ->withCount('pendaftaran')
@@ -59,10 +65,13 @@ class StatistikProdiController extends Controller
                 ];
             })->values();
 
-        return view('management.statistik-prodi', compact(
+        $__data = compact(
             'periode',
             'programStudi',
             'distribusiPerProdi'
-        ));
+        );
+        Cache::put($__cacheKey, $__data, now()->addMinutes(5));
+
+        return view('management.statistik-prodi', $__data);
     }
 }
