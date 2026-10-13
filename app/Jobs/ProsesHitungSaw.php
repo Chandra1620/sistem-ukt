@@ -51,18 +51,13 @@ class ProsesHitungSaw implements ShouldQueue
             // hasil_ukt, update ranking, dan update status ke 'hasil_awal'
             $hasil = $sawService->hitung($pendaftaran, $this->updateRanking);
 
-            // Kirim notifikasi
-            // Kirim notifikasi
-            $tipe     = $hasil['type'] === 'kip' ? 'KIP' : 'Non-KIP';
-            $hasilUkt = $pendaftaran->hasilUkt()->first();
-
-            if ($hasilUkt) {
-                NotifikasiService::hasilUktKeluar(
-                    $pendaftaran,
-                    $hasilUkt->golongan_final,
-                    (float) $hasilUkt->nominal_final
-                );
-            }
+            // Kirim notifikasi TANPA membocorkan golongan/nominal.
+            // Pada tahap 'hasil_awal' hasil SAW masih rekomendasi sementara dan
+            // menunggu penetapan panitia. Mahasiswa hanya diberi tahu bahwa
+            // berkasnya selesai diproses; angka UKT baru dikirim saat finalisasi
+            // (lihat NotifikasiService::uktDifinalisasi).
+            $tipe = $hasil['type'] === 'kip' ? 'KIP' : 'Non-KIP';
+            NotifikasiService::hasilSedangDiproses($pendaftaran);
 
             Log::info("Berhasil hitung UKT [{$tipe}] untuk pendaftaran {$pendaftaran->id}");
         } catch (\Exception $e) {

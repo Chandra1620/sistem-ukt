@@ -53,7 +53,7 @@
                                     </span>
                                 </td>
                                 <td data-label="Golongan UKT">
-                                    @if ($p->hasilUkt)
+                                    @if ($p->hasilUkt && $p->hasilBolehDilihat())
                                         <div class="ukt-info">
                                             <span class="golongan-badge">
                                                 Gol. {{ $p->hasilUkt->golongan_final }}
@@ -62,6 +62,10 @@
                                                 {{ $p->hasilUkt->nominal_format }}
                                             </div>
                                         </div>
+                                    @elseif (in_array($p->status, ['sedang_dihitung', 'hasil_awal']))
+                                        <span class="badge bg-warning-subtle text-warning-emphasis">
+                                            <i class="bi bi-hourglass-split me-1"></i>Menunggu
+                                        </span>
                                     @else
                                         <span class="text-muted">-</span>
                                     @endif
@@ -85,7 +89,7 @@
                                                 <i class="bi bi-pencil-square"></i>
                                             </a>
                                         @endif
-                                        @if (in_array($p->status, ['hasil_awal', 'final_ukt', 'selesai']))
+                                        @if ($p->hasilBolehDilihat())
                                             <a href="{{ route('mahasiswa.hasil-ukt.show', $p) }}" class="btn-action hasil"
                                                 title="Lihat Hasil UKT">
                                                 <i class="bi bi-award"></i>

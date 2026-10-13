@@ -124,7 +124,7 @@
                                 </button>
                             </form>
                         @endif
-                        @if (in_array($pendaftaran->status, ['hasil_awal', 'final_ukt', 'selesai']))
+                        @if ($pendaftaran->hasilBolehDilihat())
                             @if ($pendaftaran->is_kip)
                                 <div class="alert border-0 mb-3 p-3 rounded-3" style="background:#fef3c7;">
                                     <div class="d-flex align-items-center gap-2">
@@ -142,7 +142,7 @@
                                 </div>
                             @endif
                         @endif
-                        @if (in_array($pendaftaran->status, ['hasil_awal', 'final_ukt', 'selesai']))
+                        @if ($pendaftaran->hasilBolehDilihat())
                             <a href="{{ route('mahasiswa.hasil-ukt.show', $pendaftaran) }}" class="btn-action-hasil">
                                 <i class="bi bi-award"></i> Lihat Hasil UKT
                             </a>

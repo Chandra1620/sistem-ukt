@@ -3,6 +3,19 @@
 @section('page-title', 'Analitik Lengkap')
 
 @section('content')
+    <script>
+        window.SELECTED_PERIODE = @json((string) ($selectedPeriode ?? 'all'));
+        function withPeriode(url) {
+            const sep = url.includes('?') ? '&' : '?';
+            return url + sep + 'periode=' + encodeURIComponent(window.SELECTED_PERIODE);
+        }
+    </script>
+
+    {{-- Toolbar: Pemilih Periode --}}
+    <div class="d-flex justify-content-end mb-3">
+        @include('management.partials.periode-selector')
+    </div>
+
     <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
         <div>
             <h5 class="fw-bold mb-1">
@@ -1043,7 +1056,7 @@
 
             // Chart Distribusi UKT
             try {
-                const resUkt = await fetch('/api/statistik/distribusi-ukt');
+                const resUkt = await fetch(withPeriode('/api/statistik/distribusi-ukt'));
                 const dataUkt = await resUkt.json();
 
                 const uktContainer = document.querySelector('#chart-distribusi-ukt');
@@ -1108,7 +1121,7 @@
 
             // Chart Per Prodi
             try {
-                const resProdi = await fetch('/api/statistik/per-prodi');
+                const resProdi = await fetch(withPeriode('/api/statistik/per-prodi'));
                 const dataProdi = await resProdi.json();
 
                 const prodiContainer = document.querySelector('#chart-per-prodi');
@@ -1250,7 +1263,7 @@
             const provinsi = el.dataset.provinsi;
             try {
                 const res = await fetch(
-                    `{{ route('api.statistik.wilayah-detail') }}?provinsi=${encodeURIComponent(provinsi)}`);
+                    withPeriode(`{{ route('api.statistik.wilayah-detail') }}?provinsi=${encodeURIComponent(provinsi)}`));
                 const data = await res.json();
 
                 if (data && data.length > 0) {

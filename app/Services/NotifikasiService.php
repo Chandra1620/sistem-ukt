@@ -48,6 +48,20 @@ class NotifikasiService
         }
     }
 
+    public static function hasilSedangDiproses(Pendaftaran $pendaftaran): void
+    {
+        // Notifikasi netral: TIDAK mencantumkan golongan/nominal karena hasil
+        // SAW pada tahap ini masih rekomendasi sementara & menunggu penetapan
+        // panitia. Sengaja tanpa email agar hasil sementara tidak tersebar.
+        self::kirim(
+            $pendaftaran->user_id,
+            'Berkas Selesai Diproses',
+            'Data pengajuan UKT Anda telah selesai diproses dan sedang menunggu penetapan akhir oleh panitia. Hasil UKT akan ditampilkan setelah difinalisasi.',
+            'info',
+            ['pendaftaran_id' => $pendaftaran->id]
+        );
+    }
+
     public static function hasilUktKeluar(
         Pendaftaran $pendaftaran,
         int $golongan,

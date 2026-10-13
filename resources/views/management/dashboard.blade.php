@@ -3,6 +3,18 @@
 @section('page-title', 'Dashboard Analitik')
 
 @section('content')
+    {{-- Toolbar: Pemilih Periode --}}
+    <div class="d-flex justify-content-end mb-3">
+        @include('management.partials.periode-selector')
+    </div>
+    <script>
+        window.SELECTED_PERIODE = @json((string) ($selectedPeriode ?? 'all'));
+        function withPeriode(url) {
+            const sep = url.includes('?') ? '&' : '?';
+            return url + sep + 'periode=' + encodeURIComponent(window.SELECTED_PERIODE);
+        }
+    </script>
+
     {{-- Stat Cards Utama --}}
     <div class="row g-4 mb-4">
         <div class="col-xl-3 col-lg-6 col-md-6">
@@ -96,7 +108,7 @@
                         </div>
                         <div>
                             <h6 class="fw-semibold mb-0">Pendaftar per Program Studi</h6>
-                            <small class="text-muted">{{ $dataProdi->count() ?? 0 }} Program Studi</small>
+                            <small class="text-muted">{{ $dataProdiCount ?? 0 }} Program Studi</small>
                         </div>
                     </div>
                     <span class="chart-badge">
@@ -1146,7 +1158,7 @@
 
             // Chart Distribusi UKT
             try {
-                const resUkt = await fetch('{{ route('api.statistik.distribusi-ukt') }}');
+                const resUkt = await fetch(withPeriode('{{ route('api.statistik.distribusi-ukt') }}'));
                 const dataUkt = await resUkt.json();
 
                 const uktContainer = document.querySelector('#chart-distribusi-ukt');
@@ -1232,7 +1244,7 @@
 
             // Chart Per Prodi
             try {
-                const resProdi = await fetch('{{ route('api.statistik.per-prodi') }}');
+                const resProdi = await fetch(withPeriode('{{ route('api.statistik.per-prodi') }}'));
                 const dataProdi = await resProdi.json();
 
                 const prodiContainer = document.querySelector('#chart-per-prodi');
@@ -1458,7 +1470,7 @@
 
             // Chart KIP per Prodi
             try {
-                const resKipProdi = await fetch('{{ route('api.statistik.kip-per-prodi') }}');
+                const resKipProdi = await fetch(withPeriode('{{ route('api.statistik.kip-per-prodi') }}'));
                 const dataKipProdi = await resKipProdi.json();
                 const kipProdiContainer = document.querySelector('#chart-kip-prodi');
 

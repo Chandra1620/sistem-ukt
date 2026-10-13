@@ -176,9 +176,18 @@ Route::prefix('api')->name('api.')
         Route::get('statistik/distribusi-ukt', [\App\Http\Controllers\Api\StatistikController::class, 'distribusiUkt'])->name('statistik.distribusi-ukt');
         Route::get('statistik/per-prodi', [\App\Http\Controllers\Api\StatistikController::class, 'perProdi'])->name('statistik.per-prodi');
         Route::get('statistik/ekonomi', [\App\Http\Controllers\Api\StatistikController::class, 'ekonomi'])->name('statistik.ekonomi');
-        Route::get('statistik/kip-per-prodi', function () {
-            $data = \App\Models\ProgramStudi::with(['pendaftaran' => function ($q) {
+        Route::get('statistik/kip-per-prodi', function (\Illuminate\Http\Request $request) {
+            // Filter periode dari query (?periode=<id> | all). Default semua periode.
+            $__p = $request->query('periode');
+            $periodeId = (is_numeric($__p) && \App\Models\PeriodeSeleksi::whereKey((int) $__p)->exists())
+                ? (int) $__p
+                : null;
+
+            $data = \App\Models\ProgramStudi::with(['pendaftaran' => function ($q) use ($periodeId) {
                 $q->whereIn('status', ['hasil_awal', 'final_ukt', 'selesai']);
+                if ($periodeId) {
+                    $q->where('periode_id', $periodeId);
+                }
             }])
                 ->aktif()
                 ->get()

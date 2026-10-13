@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Concerns\ResolvesPeriode;
 use App\Http\Controllers\Controller;
 use App\Models\Pendaftaran;
 use App\Models\HasilUkt;
@@ -10,15 +11,12 @@ use App\Models\PeriodeSeleksi;
 
 class StatistikController extends Controller
 {
-    /** ID periode aktif (atau null bila tidak ada periode aktif). */
-    private function periodeAktifId(): ?int
-    {
-        return PeriodeSeleksi::where('status', 'aktif')->value('id');
-    }
+    use ResolvesPeriode;
 
     public function pendaftar()
     {
-        $periodeId = $this->periodeAktifId();
+        // Periode dari query (?periode=<id> | all). Default semua periode.
+        $periodeId = $this->resolvePeriodeId();
 
         $data = Pendaftaran::selectRaw("DATE(created_at) as tanggal, COUNT(*) as total")
             ->where('status', '!=', 'draft')
@@ -33,7 +31,7 @@ class StatistikController extends Controller
 
     public function distribusiUkt()
     {
-        $periodeId = $this->periodeAktifId();
+        $periodeId = $this->resolvePeriodeId();
 
         $data = HasilUkt::selectRaw("golongan_final, COUNT(*) as total")
             ->whereHas('pendaftaran', function ($q) use ($periodeId) {
@@ -55,7 +53,7 @@ class StatistikController extends Controller
 
     public function perProdi()
     {
-        $periodeId = $this->periodeAktifId();
+        $periodeId = $this->resolvePeriodeId();
 
         $data = Pendaftaran::with('programStudi')
             ->where('status', '!=', 'draft')
@@ -73,7 +71,7 @@ class StatistikController extends Controller
 
     public function ekonomi()
     {
-        $periodeId = $this->periodeAktifId();
+        $periodeId = $this->resolvePeriodeId();
 
         $ekonomiQuery = DataEkonomi::whereHas('pendaftaran', function ($q) use ($periodeId) {
             $q->where('status', '!=', 'draft');

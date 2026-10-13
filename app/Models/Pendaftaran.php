@@ -83,6 +83,18 @@ class Pendaftaran extends Model
         return in_array($this->status, ['draft', 'ditolak_reviewer']);
     }
 
+    /**
+     * Apakah hasil UKT (golongan & nominal) sudah boleh dilihat mahasiswa.
+     * Hasil hanya ditampilkan SETELAH difinalisasi panitia. Pada tahap
+     * 'hasil_awal' hasil SAW masih bersifat rekomendasi sementara sehingga
+     * SENGAJA disembunyikan dari mahasiswa; ini mencegah kesalahpahaman /
+     * protes bila panitia mengubah golongan saat finalisasi.
+     */
+    public function hasilBolehDilihat(): bool
+    {
+        return in_array($this->status, ['final_ukt', 'banding_diproses', 'selesai']);
+    }
+
     public function getLabelStatusAttribute(): string
     {
         return match ($this->status) {

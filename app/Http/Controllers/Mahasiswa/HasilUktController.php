@@ -16,14 +16,13 @@ class HasilUktController extends Controller
             abort(403);
         }
 
-        if (!in_array($pendaftaran->status, [
-            'hasil_awal',
-            'final_ukt',
-            'banding_diproses',
-            'selesai'
-        ])) {
+        // Hasil UKT hanya boleh dilihat SETELAH difinalisasi panitia.
+        // Tahap 'hasil_awal' (rekomendasi SAW sementara) sengaja tidak
+        // ditampilkan agar mahasiswa tidak terpaku pada golongan sementara
+        // yang masih dapat berubah saat finalisasi.
+        if (!$pendaftaran->hasilBolehDilihat()) {
             return redirect()->route('mahasiswa.pendaftaran.show', $pendaftaran)
-                ->with('info', 'Hasil UKT belum tersedia.');
+                ->with('info', 'Hasil UKT belum tersedia. Data Anda sedang menunggu penetapan akhir oleh panitia.');
         }
 
         $pendaftaran->load([

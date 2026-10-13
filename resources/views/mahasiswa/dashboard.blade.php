@@ -38,7 +38,7 @@
                             </div>
 
                             <div class="col-md-4 text-md-end mt-3 mt-md-0">
-                                @if ($pendaftaran->hasilUkt)
+                                @if ($pendaftaran->hasilUkt && $pendaftaran->hasilBolehDilihat())
                                     @if ($pendaftaran->is_kip)
                                         <div class="ukt-card kip-card">
                                             <div class="text-uppercase small fw-semibold text-muted mb-1">
@@ -66,6 +66,19 @@
                                             </div>
                                         </div>
                                     @endif
+                                @elseif (in_array($pendaftaran->status, ['sedang_dihitung', 'hasil_awal']))
+                                    <div class="ukt-card ukt-card-pending">
+                                        <div class="text-uppercase small fw-semibold text-muted mb-1">
+                                            Status Hasil
+                                        </div>
+                                        <div class="display-6 mb-1 text-warning">
+                                            <i class="bi bi-hourglass-split"></i>
+                                        </div>
+                                        <div class="fw-bold text-warning">Sedang Diproses Panitia</div>
+                                        <div class="small text-muted mt-1">
+                                            Hasil UKT akan tampil setelah ditetapkan panitia
+                                        </div>
+                                    </div>
                                 @endif
                             </div>
                         </div>
@@ -119,7 +132,7 @@
                                     <i class="bi bi-pencil-square"></i> Edit Data
                                 </a>
                             @endif
-                            @if (in_array($pendaftaran->status, ['hasil_awal', 'final_ukt', 'selesai']))
+                            @if ($pendaftaran->hasilBolehDilihat())
                                 <a href="{{ route('mahasiswa.hasil-ukt.show', $pendaftaran) }}"
                                     class="btn btn-success btn-premium">
                                     <i class="bi bi-award"></i> Lihat Hasil UKT
@@ -272,7 +285,7 @@
                                                 </span>
                                             </td>
                                             <td data-label="Golongan">
-                                                @if ($r->hasilUkt)
+                                                @if ($r->hasilUkt && $r->hasilBolehDilihat())
                                                     @if ($r->is_kip)
                                                         <span class="kip-badge-small">
                                                             <i class="bi bi-award-fill"></i>
@@ -284,6 +297,10 @@
                                                             Gol. {{ $r->hasilUkt->golongan_final }}
                                                         </span>
                                                     @endif
+                                                @elseif (in_array($r->status, ['sedang_dihitung', 'hasil_awal']))
+                                                    <span class="badge bg-warning-subtle text-warning-emphasis">
+                                                        <i class="bi bi-hourglass-split me-1"></i>Menunggu
+                                                    </span>
                                                 @else
                                                     <span class="text-muted">-</span>
                                                 @endif
