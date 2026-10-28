@@ -3,6 +3,26 @@
 @section('page-title', 'Dashboard Admin')
 
 @section('content')
+    {{-- Banner Progres Recalculate SAW (Dinamis jika ada batch antrean aktif) --}}
+    <div id="recalculateProgressAlert" class="alert alert-info border-0 shadow-sm rounded-4 mb-4 d-none"
+        style="background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border-left: 5px solid #3b82f6 !important;">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+            <div class="d-flex align-items-center gap-2">
+                <div class="spinner-border spinner-border-sm text-primary" role="status" id="recalcSpinner"></div>
+                <strong class="text-primary fw-semibold" id="recalcAlertTitle">Perhitungan Ulang SAW Sedang Berjalan</strong>
+            </div>
+            <span class="badge bg-primary rounded-pill px-3 py-1" id="recalcAlertBadge">0% Selesai</span>
+        </div>
+        <div class="progress" style="height: 10px; border-radius: 6px; background-color: #cbd5e1;">
+            <div id="recalcAlertProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+                role="progressbar" style="width: 0%;"></div>
+        </div>
+        <div class="d-flex justify-content-between mt-2 small text-muted">
+            <span id="recalcAlertDetail">Memproses antrean chunk...</span>
+            <span id="recalcAlertWorkerHint"><i class="bi bi-cpu me-1"></i>Queue Worker</span>
+        </div>
+    </div>
+
     {{-- Stat Cards Premium --}}
     <div class="row g-3 g-md-4 mb-4">
         <div class="col-6 col-md-3">
@@ -373,9 +393,9 @@
                                     <td>
                                         <div class="time-info">
                                             <i class="bi bi-calendar3 d-md-none"></i>
-                                            <span class="time-relative">{{ $log->created_at->diffForHumans() }}</span>
+                                            <span class="time-relative">{{ $log->created_at?->diffForHumans() ?? '-' }}</span>
                                             <span
-                                                class="time-full d-none d-sm-inline">{{ $log->created_at->format('H:i, d M Y') }}</span>
+                                                class="time-full d-none d-sm-inline">{{ $log->created_at?->format('H:i, d M Y') ?? '-' }}</span>
                                         </div>
                                     </td>
                                 </tr>
@@ -452,6 +472,20 @@
                                     <li>Mengupdate ranking dan rekomendasi golongan</li>
                                 </ul>
                             </div>
+                        </div>
+
+                        {{-- Indikator Progres di dalam Modal --}}
+                        <div id="modalRecalcProgressContainer" class="d-none mt-3 p-3 bg-light rounded-3 border">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="small fw-semibold text-primary" id="modalRecalcText">
+                                    <i class="spinner-border spinner-border-sm me-1"></i> Perhitungan sedang berlangsung di background...
+                                </span>
+                                <span class="badge bg-primary" id="modalRecalcBadge">0%</span>
+                            </div>
+                            <div class="progress" style="height: 8px; border-radius: 4px;">
+                                <div id="modalRecalcBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 0%;"></div>
+                            </div>
+                            <div class="small text-muted mt-1" id="modalRecalcSubtext">Harap tunggu hingga seluruh chunk mahasiswa selesai diproses worker.</div>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -1596,5 +1630,107 @@
             });
             return false;
         }
+
+        // Real-time polling status Recalculate SAW
+        let recalcPollInterval = null;
+        let isRecalcActive = false;
+
+        function checkRecalculateStatus() {
+            if (document.hidden) return; // Menghemat request jika tab sedang tidak aktif
+
+            fetch('{{ route('admin.recalculate-saw.status') }}')
+                .then(res => res.json())
+                .then(data => {
+                    const alertEl = document.getElementById('recalculateProgressAlert');
+                    const barEl = document.getElementById('recalcAlertProgressBar');
+                    const badgeEl = document.getElementById('recalcAlertBadge');
+                    const titleEl = document.getElementById('recalcAlertTitle');
+                    const detailEl = document.getElementById('recalcAlertDetail');
+                    const spinnerEl = document.getElementById('recalcSpinner');
+                    const submitBtn = document.getElementById('submitRecalculate');
+                    const modalContainer = document.getElementById('modalRecalcProgressContainer');
+                    const modalBar = document.getElementById('modalRecalcBar');
+                    const modalBadge = document.getElementById('modalRecalcBadge');
+
+                    if (data.active) {
+                        isRecalcActive = true;
+                        if (alertEl) alertEl.classList.remove('d-none');
+
+                        const progress = data.progress || 0;
+                        if (barEl) barEl.style.width = progress + '%';
+                        if (badgeEl) badgeEl.innerText = progress + '% Selesai';
+
+                        if (data.has_batch && data.total_jobs > 0) {
+                            if (detailEl) {
+                                detailEl.innerText = `${data.processed_jobs} dari ${data.total_jobs} chunk selesai diproses.` +
+                                    (data.failed_jobs > 0 ? ` (${data.failed_jobs} gagal)` : '');
+                            }
+                        } else {
+                            if (detailEl) detailEl.innerText = `Menyiapkan antrean pendaftaran...`;
+                        }
+
+                        if (submitBtn) {
+                            submitBtn.disabled = true;
+                            submitBtn.innerHTML = '<i class="spinner-border spinner-border-sm me-1"></i> Sedang Diproses...';
+                        }
+
+                        if (modalContainer) {
+                            modalContainer.classList.remove('d-none');
+                            if (modalBar) modalBar.style.width = progress + '%';
+                            if (modalBadge) modalBadge.innerText = progress + '%';
+                        }
+                    } else if (isRecalcActive && data.finished) {
+                        // Selesai baru saja
+                        isRecalcActive = false;
+                        if (recalcPollInterval) clearInterval(recalcPollInterval);
+
+                        if (alertEl) {
+                            alertEl.classList.remove('d-none', 'alert-info');
+                            alertEl.classList.add('alert-success');
+                        }
+                        if (spinnerEl) spinnerEl.classList.add('d-none');
+                        if (barEl) {
+                            barEl.classList.remove('bg-primary');
+                            barEl.classList.add('bg-success');
+                            barEl.style.width = '100%';
+                        }
+                        if (badgeEl) {
+                            badgeEl.classList.remove('bg-primary');
+                            badgeEl.classList.add('bg-success');
+                            badgeEl.innerText = '100% Selesai';
+                        }
+                        if (titleEl) titleEl.innerText = 'Perhitungan Ulang SAW Selesai!';
+                        if (detailEl) detailEl.innerText = 'Ranking telah diperbarui. Memperbarui halaman dalam 2 detik...';
+
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 2000);
+                    } else {
+                        // Tidak ada recalculate aktif
+                        if (alertEl && !isRecalcActive) alertEl.classList.add('d-none');
+                        if (submitBtn && submitBtn.disabled) {
+                            submitBtn.disabled = false;
+                            submitBtn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Hitung Ulang';
+                        }
+                        if (modalContainer) modalContainer.classList.add('d-none');
+                    }
+                })
+                .catch(err => {
+                    console.error('Error saat memeriksa status recalculate SAW:', err);
+                });
+        }
+
+        // Inisialisasi polling saat halaman dimuat
+        document.addEventListener('DOMContentLoaded', function() {
+            checkRecalculateStatus();
+            recalcPollInterval = setInterval(checkRecalculateStatus, 3000);
+        });
+
+        // Polling aktif kembali saat tab aktif
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) {
+                checkRecalculateStatus();
+            }
+        });
     </script>
 @endsection

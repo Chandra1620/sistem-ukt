@@ -39,15 +39,49 @@ class ExportController extends Controller
         return response()->json(['total' => $total]);
     }
 
+    private const MAX_PDF_ROWS = 300;
+
     public function pdf(Request $request)
     {
-        $pendaftaran = $this->buildQuery($request)
-            ->with(['programStudi', 'periode', 'verifikasi.reviewer', 'dokumen'])
-            ->get();
+        $query = $this->buildQuery($request);
+        $total = (clone $query)->count();
+
+        if ($total === 0) {
+            return back()->with('error', 'Tidak ada data yang sesuai dengan filter yang dipilih.');
+        }
+
+        if ($total > self::MAX_PDF_ROWS) {
+            return back()->with(
+                'error',
+                "Jumlah data ({$total} baris) melebihi batas maksimum " . self::MAX_PDF_ROWS . " baris untuk export PDF. " .
+                "Silakan persempit filter (misal pilih Program Studi atau Periode tertentu) atau gunakan Export Excel / CSV untuk seluruh data."
+            );
+        }
+
+        $pendaftaran = $query->select([
+            'id',
+            'periode_id',
+            'program_studi_id',
+            'no_pendaftaran',
+            'nama_lengkap',
+            'is_kip',
+            'status',
+            'created_at',
+        ])
+        ->withCount('dokumen')
+        ->with([
+            'programStudi:id,nama',
+            'periode:id,nama',
+            'verifikasi' => fn($q) => $q->select('id', 'pendaftaran_id', 'reviewer_id', 'komentar', 'created_at')
+                ->with('reviewer:id,name'),
+        ])
+        ->limit(self::MAX_PDF_ROWS)
+        ->get();
 
         $filterInfo = $this->getFilterInfo($request);
         $periode    = $request->filled('periode_id')
-            ? PeriodeSeleksi::find($request->periode_id) : null;
+            ? PeriodeSeleksi::select('id', 'nama', 'tahun')->find($request->periode_id)
+            : null;
 
         $pdf = Pdf::loadView('reviewer.export.pdf', compact(
             'pendaftaran',

@@ -10,34 +10,47 @@ use App\Models\ImportLog;
 use App\Models\PeriodeSeleksi;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class NotifikasiController extends Controller
 {
     public function index()
     {
+        $userId = Auth::id();
+        if (!$userId) {
+            return response()->json([]);
+        }
+
         // Auto-generate notifikasi penting (SADAR ROLE) sebelum tampilkan.
-        // Dibungkus try/catch agar hiccup DB saat generate tidak
-        // menggagalkan tampilan notifikasi yang sudah ada.
+        // Dibatasi per user via cache 60 detik agar tidak membebani database setiap request.
         try {
-            $this->generateNotifikasiOtomatis();
+            Cache::remember("user_{$userId}_auto_notif_generated", 60, function () {
+                $this->generateNotifikasiOtomatis();
+                return true;
+            });
         } catch (\Throwable $e) {
             Log::warning('[NOTIF] generate otomatis gagal: ' . $e->getMessage());
         }
 
-        $notifikasi = Notifikasi::where('user_id', Auth::id())
-            ->orderByDesc('created_at')
-            ->limit(20)
-            ->get()
-            ->map(fn($n) => [
-                'id'         => $n->id,
-                'judul'      => $n->judul,
-                'pesan'      => $n->pesan,
-                'tipe'       => $n->tipe,
-                'ikon'       => $this->getIkon($n->tipe),
-                'dibaca'     => (bool) $n->dibaca,
-                'created_at' => optional($n->created_at)->toISOString(),
-            ]);
+        $cacheKey = "user_{$userId}_notifikasi_list";
+        $notifikasi = Cache::remember($cacheKey, 60, function () use ($userId) {
+            return Notifikasi::where('user_id', $userId)
+                ->orderByDesc('created_at')
+                ->limit(20)
+                ->get()
+                ->map(fn($n) => [
+                    'id'         => $n->id,
+                    'judul'      => $n->judul,
+                    'pesan'      => $n->pesan,
+                    'tipe'       => $n->tipe,
+                    'ikon'       => $this->getIkon($n->tipe),
+                    'dibaca'     => (bool) $n->dibaca,
+                    'created_at' => optional($n->created_at)->toISOString(),
+                ])
+                ->all();
+        });
 
         // Front-end mengharapkan ARRAY langsung (data.filter(...)),
         // BUKAN object. Kembalikan koleksi apa adanya.
@@ -50,37 +63,54 @@ class NotifikasiController extends Controller
      */
     public function jumlah()
     {
-        // Tetap generate agar badge muncul walau dropdown belum dibuka
-        // Polling ringan (tiap 10 dtk): HANYA hitung, JANGAN generate,
-        // supaya hemat round-trip ke DB remote. Generate ada di index().
+        $userId = Auth::id();
+        if (!$userId) {
+            return response()->json(['jumlah_belum_dibaca' => 0]);
+        }
+
+        $cacheKey = "user_{$userId}_notif_unread_count";
+        $jumlahBelumDibaca = Cache::remember($cacheKey, 60, function () use ($userId) {
+            return $this->hitungBelumDibaca($userId);
+        });
+
         return response()->json([
-            'jumlah_belum_dibaca' => $this->hitungBelumDibaca(),
+            'jumlah_belum_dibaca' => (int) $jumlahBelumDibaca,
         ]);
     }
 
     public function baca($id)
     {
+        $userId = Auth::id();
+
         Notifikasi::where('id', $id)
-            ->where('user_id', Auth::id())
+            ->where('user_id', $userId)
             ->update([
                 'dibaca'    => 'true', // string, bukan boolean PHP (Postgres binding issue)
                 'dibaca_at' => now(),
             ]);
 
+        Cache::forget("user_{$userId}_notif_unread_count");
+        Cache::forget("user_{$userId}_notifikasi_list");
+
         return response()->json([
             'success'             => true,
-            'jumlah_belum_dibaca' => $this->hitungBelumDibaca(),
+            'jumlah_belum_dibaca' => $this->hitungBelumDibaca($userId),
         ]);
     }
 
     public function bacaSemua()
     {
-        Notifikasi::where('user_id', Auth::id())
+        $userId = Auth::id();
+
+        Notifikasi::where('user_id', $userId)
             ->whereRaw('"dibaca" = FALSE') // aman untuk boolean Postgres (JANGAN where('dibaca', false))
             ->update([
                 'dibaca'    => 'true', // string, bukan boolean PHP (Postgres binding issue)
                 'dibaca_at' => now(),
             ]);
+
+        Cache::forget("user_{$userId}_notif_unread_count");
+        Cache::forget("user_{$userId}_notifikasi_list");
 
         return response()->json([
             'success'             => true,
@@ -88,11 +118,16 @@ class NotifikasiController extends Controller
         ]);
     }
 
-    private function hitungBelumDibaca(): int
+    private function hitungBelumDibaca(?int $userId = null): int
     {
-        return Notifikasi::where('user_id', Auth::id())
-            ->whereRaw('"dibaca" = FALSE')
-            ->count();
+        $userId = $userId ?? Auth::id();
+        if (!$userId) {
+            return 0;
+        }
+
+        return (int) Notifikasi::where('user_id', $userId)
+            ->selectRaw('COALESCE(SUM(CASE WHEN dibaca = FALSE THEN 1 ELSE 0 END), 0) as unread')
+            ->value('unread');
     }
 
     private function getIkon(string $tipe): string
@@ -137,30 +172,48 @@ class NotifikasiController extends Controller
         $isPanitia    = $user->hasRole('panitia');
         $isManagement = $user->hasRole('management');
 
-        // 1. Pendaftaran menunggu verifikasi -> admin & reviewer
-        if ($isAdmin || $isReviewer) {
-            $menunggu = Pendaftaran::where('status', 'menunggu_verifikasi')->count();
-            if ($menunggu > 0) {
-                $this->upsertNotif(
-                    $userId,
-                    'pendaftaran_baru',
-                    "{$menunggu} Pendaftaran Menunggu Verifikasi",
-                    "{$menunggu} mahasiswa telah mengajukan pendaftaran dan menunggu verifikasi dokumen.",
-                );
+        // Gabungkan hitungan count menjadi satu query bila user admin/panitia/reviewer
+        $menunggu    = 0;
+        $banding     = 0;
+        $importGagal = 0;
+
+        if ($isAdmin) {
+            $counts = DB::selectOne("
+                SELECT 
+                    (SELECT COUNT(*) FROM pendaftaran WHERE status = 'menunggu_verifikasi') AS menunggu,
+                    (SELECT COUNT(*) FROM banding WHERE status = 'diajukan') AS banding,
+                    (SELECT COUNT(*) FROM import_logs WHERE status = 'gagal' AND created_at >= NOW() - INTERVAL '3 days') AS import_gagal
+            ");
+            $menunggu    = (int) ($counts->menunggu ?? 0);
+            $banding     = (int) ($counts->banding ?? 0);
+            $importGagal = (int) ($counts->import_gagal ?? 0);
+        } else {
+            if ($isReviewer) {
+                $menunggu = Pendaftaran::where('status', 'menunggu_verifikasi')->count();
+            }
+            if ($isPanitia) {
+                $banding = Banding::where('status', 'diajukan')->count();
             }
         }
 
+        // 1. Pendaftaran menunggu verifikasi -> admin & reviewer
+        if (($isAdmin || $isReviewer) && $menunggu > 0) {
+            $this->upsertNotif(
+                $userId,
+                'pendaftaran_baru',
+                "{$menunggu} Pendaftaran Menunggu Verifikasi",
+                "{$menunggu} mahasiswa telah mengajukan pendaftaran dan menunggu verifikasi dokumen.",
+            );
+        }
+
         // 2. Banding baru belum diproses -> panitia & admin
-        if ($isPanitia || $isAdmin) {
-            $banding = Banding::where('status', 'diajukan')->count();
-            if ($banding > 0) {
-                $this->upsertNotif(
-                    $userId,
-                    'banding_baru',
-                    "{$banding} Pengajuan Banding Baru",
-                    "{$banding} mahasiswa mengajukan banding yang perlu diproses oleh panitia.",
-                );
-            }
+        if (($isPanitia || $isAdmin) && $banding > 0) {
+            $this->upsertNotif(
+                $userId,
+                'banding_baru',
+                "{$banding} Pengajuan Banding Baru",
+                "{$banding} mahasiswa mengajukan banding yang perlu diproses oleh panitia.",
+            );
         }
 
         // 3 & 4. Status periode -> admin & management (pengawasan)
@@ -192,18 +245,13 @@ class NotifikasiController extends Controller
         }
 
         // 5. Import ETL gagal -> admin saja
-        if ($isAdmin) {
-            $importGagal = ImportLog::where('status', 'gagal')
-                ->where('created_at', '>=', now()->subDays(3))
-                ->count();
-            if ($importGagal > 0) {
-                $this->upsertNotif(
-                    $userId,
-                    'import_gagal',
-                    "{$importGagal} Proses Import Gagal",
-                    "{$importGagal} proses import ETL gagal dalam 3 hari terakhir. Periksa log import untuk detail.",
-                );
-            }
+        if ($isAdmin && $importGagal > 0) {
+            $this->upsertNotif(
+                $userId,
+                'import_gagal',
+                "{$importGagal} Proses Import Gagal",
+                "{$importGagal} proses import ETL gagal dalam 3 hari terakhir. Periksa log import untuk detail.",
+            );
         }
     }
 

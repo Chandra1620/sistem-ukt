@@ -134,6 +134,7 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'role:admin'])->grou
 
     // Recalculate SAW
     Route::post('recalculate-saw', [\App\Http\Controllers\Admin\RecalculateSawController::class, 'recalculate'])->name('recalculate-saw');
+    Route::get('recalculate-saw/status/{periodeId?}', [\App\Http\Controllers\Admin\RecalculateSawController::class, 'status'])->name('recalculate-saw.status');
 
     // Import ETL
     Route::prefix('import-etl')->name('import-etl.')->group(function () {
@@ -213,6 +214,7 @@ Route::prefix('api')->name('api.')
 // ===== API (AJAX) =====
 Route::prefix('api')->name('api.')->middleware('auth')->group(function () {
     Route::get('notifikasi', [\App\Http\Controllers\Api\NotifikasiController::class, 'index'])->name('notifikasi.index');
+    Route::get('notifikasi/jumlah', [\App\Http\Controllers\Api\NotifikasiController::class, 'jumlah'])->name('notifikasi.jumlah');
     Route::post('notifikasi/{id}/baca', [\App\Http\Controllers\Api\NotifikasiController::class, 'baca'])->name('notifikasi.baca');
     Route::post('notifikasi/baca-semua', [\App\Http\Controllers\Api\NotifikasiController::class, 'bacaSemua'])->name('notifikasi.baca-semua');
 });

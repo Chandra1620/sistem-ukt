@@ -361,7 +361,7 @@
 @endsection
 
 @push('scripts')
-    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts" defer></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const labels = @json($periodeList->pluck('nama'));

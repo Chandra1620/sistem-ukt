@@ -74,8 +74,8 @@
                             <tr class="log-row">
                                 <td data-label="Waktu">
                                     <div class="time-cell">
-                                        <div class="time-main">{{ $log->created_at->format('d M Y H:i') }}</div>
-                                        <div class="time-relative">{{ $log->created_at->diffForHumans() }}</div>
+                                        <div class="time-main">{{ $log->created_at?->format('d M Y H:i') ?? '-' }}</div>
+                                        <div class="time-relative">{{ $log->created_at?->diffForHumans() ?? '-' }}</div>
                                     </div>
                                 </td>
                                 <td data-label="User">

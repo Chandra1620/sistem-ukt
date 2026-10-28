@@ -4,13 +4,12 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Pendaftaran;
-use App\Models\HasilSaw;
-use App\Models\DetailSaw;
-use App\Models\HasilUkt;
 use App\Models\PeriodeSeleksi;
-use App\Jobs\ProsesHitungSaw;
-use App\Services\AuditLogService;
+use App\Jobs\ProsesRecalculateSawInduk;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
 
 class RecalculateSawController extends Controller
 {
@@ -22,64 +21,81 @@ class RecalculateSawController extends Controller
 
         $periode = PeriodeSeleksi::findOrFail($request->periode_id);
 
-        // Ambil semua pendaftaran yang sudah diverifikasi ke atas
-        $pendaftaranList = Pendaftaran::where('periode_id', $periode->id)
+        // Cek apakah ada data pendaftaran yang memenuhi syarat perhitungan ulang
+        $adaPendaftar = Pendaftaran::where('periode_id', $periode->id)
             ->whereIn('status', [
                 'diverifikasi',
                 'sedang_dihitung',
                 'hasil_awal',
                 'final_ukt',
-                'selesai'
+                'selesai',
             ])
-            ->get();
+            ->exists();
 
-        if ($pendaftaranList->isEmpty()) {
-            return back()->with('error', 'Tidak ada data yang bisa dihitung ulang.');
+        if (!$adaPendaftar) {
+            return back()->with('error', 'Tidak ada data pendaftaran yang bisa dihitung ulang pada periode ini.');
         }
 
-        // Hapus hasil SAW & UKT lama
-        $ids = $pendaftaranList->pluck('id');
+        // Dispatch job induk ke queue secara asinkron (tidak memblokir request HTTP)
+        ProsesRecalculateSawInduk::dispatch($periode->id, Auth::id());
 
-        DetailSaw::whereHas('hasilSaw', fn($q) => $q->whereIn('pendaftaran_id', $ids))->delete();
-        HasilSaw::whereIn('pendaftaran_id', $ids)->delete();
-        HasilUkt::whereIn('pendaftaran_id', $ids)->delete();
+        return back()->with(
+            'success',
+            "Perhitungan sedang diproses di latar belakang untuk periode {$periode->nama}."
+        );
+    }
 
-        // Reset status ke diverifikasi
-        Pendaftaran::whereIn('id', $ids)
-            ->whereIn('status', ['sedang_dihitung', 'hasil_awal', 'final_ukt', 'selesai'])
-            ->update(['status' => 'diverifikasi']);
+    /**
+     * Cek status & progres batch recalculate SAW secara real-time.
+     */
+    public function status(?int $periodeId = null)
+    {
+        $batchId = null;
+        if ($periodeId && $periodeId > 0) {
+            $batchId = Cache::get("recalculate_saw_active_batch_{$periodeId}");
+        }
 
-        // Dispatch ulang job SAW
-        $count = 0;
-        $gagal = 0;
-        foreach ($pendaftaranList as $p) {
-            $p->refresh();
-            if (in_array($p->status, ['diverifikasi'])) {
-                try {
-                    ProsesHitungSaw::dispatchSync($p, false);
-                    $count++;
-                } catch (\Throwable $e) {
-                    $gagal++;
-                    \Illuminate\Support\Facades\Log::error(
-                        "Recalculate SAW gagal untuk pendaftaran {$p->id}: " . $e->getMessage()
-                    );
-                }
+        if (!$batchId) {
+            $batchId = Cache::get('recalculate_saw_latest_batch');
+        }
+
+        if ($batchId) {
+            $batch = Bus::findBatch($batchId);
+            if ($batch) {
+                return response()->json([
+                    'has_batch'      => true,
+                    'batch_id'       => $batch->id,
+                    'batch_name'     => $batch->name,
+                    'active'         => !$batch->finished() && !$batch->cancelled(),
+                    'finished'       => $batch->finished(),
+                    'cancelled'      => $batch->cancelled(),
+                    'progress'       => $batch->progress(),
+                    'total_jobs'     => $batch->totalJobs,
+                    'pending_jobs'   => $batch->pendingJobs,
+                    'processed_jobs' => $batch->processedJobs(),
+                    'failed_jobs'    => $batch->failedJobs,
+                ]);
             }
         }
 
-        if ($count > 0) {
-            app(\App\Services\SawService::class)->updateRankingPeriode($periode->id);
+        // Fallback jika batch sudah selesai atau tidak tersimpan di cache
+        $sedangDihitungQuery = Pendaftaran::where('status', 'sedang_dihitung');
+        if ($periodeId && $periodeId > 0) {
+            $sedangDihitungQuery->where('periode_id', $periodeId);
         }
+        $sedangDihitungCount = $sedangDihitungQuery->count();
 
-        AuditLogService::log(
-            'recalculate_saw',
-            'PeriodeSeleksi',
-            $periode->id,
-            null,
-            ['jumlah' => $count, 'periode' => $periode->nama]
-        );
-
-        return back()->with('success', "Perhitungan ulang SAW selesai untuk {$count} mahasiswa pada periode {$periode->nama}."
-            . ($gagal > 0 ? " ({$gagal} gagal, cek log untuk detail.)" : ''));
+        return response()->json([
+            'has_batch'      => false,
+            'active'         => $sedangDihitungCount > 0,
+            'finished'       => $sedangDihitungCount === 0,
+            'progress'       => $sedangDihitungCount > 0 ? 50 : 100,
+            'total_jobs'     => 0,
+            'processed_jobs' => 0,
+            'failed_jobs'    => 0,
+            'sedang_dihitung'=> $sedangDihitungCount,
+        ]);
     }
 }
+
+

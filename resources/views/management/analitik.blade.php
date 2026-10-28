@@ -1036,6 +1036,7 @@
 @endsection
 
 @push('scripts')
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts" defer></script>
     <script>
         function formatGolongan(g) {
             if (g === null || g === undefined || g === '') return 'Unknown';

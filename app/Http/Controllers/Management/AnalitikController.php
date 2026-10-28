@@ -10,6 +10,7 @@ use App\Models\Pendaftaran;
 use App\Models\PeriodeSeleksi;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class AnalitikController extends Controller
 {
@@ -70,28 +71,26 @@ class AnalitikController extends Controller
                 ])
                 ->all();
 
-            // Statistik ekonomi (periode terpilih, tanpa draft).
-            $ekonomiQuery = DataEkonomi::whereHas('pendaftaran', $filterViaPendaftaran);
-
-            $count  = (clone $ekonomiQuery)->count();
-            $median = 0.0;
-            if ($count > 0) {
-                $sorted = (clone $ekonomiQuery)
-                    ->orderBy('penghasilan_total')
-                    ->pluck('penghasilan_total')
-                    ->map(fn($v) => (float) $v)
-                    ->values();
-                $mid    = intdiv($count, 2);
-                $median = $count % 2 === 0
-                    ? (($sorted[$mid - 1] + $sorted[$mid]) / 2)
-                    : $sorted[$mid];
-            }
+            // Statistik ekonomi: dihitung langsung dalam 1 query agregasi PostgreSQL
+            // menggunakan PERCENTILE_CONT(0.5) untuk median tanpa menarik ribuan baris ke PHP.
+            $ekonomiStats = DB::table('data_ekonomi as de')
+                ->join('pendaftaran as p', 'p.id', '=', 'de.pendaftaran_id')
+                ->where('p.status', '!=', 'draft')
+                ->when($periodeId, fn($q) => $q->where('p.periode_id', $periodeId))
+                ->selectRaw("
+                    COUNT(de.id) as count,
+                    COALESCE(AVG(de.penghasilan_total), 0) as rata_rata,
+                    COALESCE(MIN(de.penghasilan_total), 0) as minimum,
+                    COALESCE(MAX(de.penghasilan_total), 0) as maximum,
+                    COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY de.penghasilan_total), 0) as median
+                ")
+                ->first();
 
             $statsEkonomi = [
-                'rata_rata'       => (float) ((clone $ekonomiQuery)->avg('penghasilan_total') ?? 0),
-                'median'          => (float) $median,
-                'minimum'         => (float) ((clone $ekonomiQuery)->min('penghasilan_total') ?? 0),
-                'maximum'         => (float) ((clone $ekonomiQuery)->max('penghasilan_total') ?? 0),
+                'rata_rata'       => (float) ($ekonomiStats->rata_rata ?? 0),
+                'median'          => (float) ($ekonomiStats->median ?? 0),
+                'minimum'         => (float) ($ekonomiStats->minimum ?? 0),
+                'maximum'         => (float) ($ekonomiStats->maximum ?? 0),
                 'total_pendaftar' => $totalPendaftar,
             ];
 

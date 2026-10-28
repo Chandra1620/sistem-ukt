@@ -181,6 +181,10 @@
                                     </div>
                                     <h6 class="fw-bold mb-1">PDF</h6>
                                     <p class="small text-muted mb-2">Format laporan siap cetak</p>
+                                    <div class="small text-muted mb-3">
+                                        <span class="badge bg-light text-danger border me-1">Maks. 300 data</span>
+                                        <span class="badge bg-light text-dark">Siap cetak</span>
+                                    </div>
                                     <button onclick="doExport('pdf')" class="btn btn-danger w-100 rounded-pill py-2">
                                         <i class="bi bi-download me-2"></i> Export PDF
                                     </button>
@@ -265,11 +269,16 @@
                 const params = getFilterParams();
                 const res = await fetch(`{{ route('management.export.preview') }}?${params}`);
                 const data = await res.json();
+                window.lastCheckedTotal = data.total;
 
                 if (data.total > 0) {
                     previewText.innerHTML =
                         `<span class="text-success fw-bold">✓ ${data.total.toLocaleString()} data</span> ditemukan sesuai filter`;
-                    previewSub.textContent = 'Data siap diexport. Pilih format export di bawah.';
+                    if (data.total > 300) {
+                        previewSub.innerHTML = '<span class="text-danger fw-semibold">Data melebihi 300 baris.</span> Siap diexport ke Excel/CSV. Untuk PDF, silakan persempit filter.';
+                    } else {
+                        previewSub.textContent = 'Data siap diexport. Pilih format export di bawah.';
+                    }
                     previewBox.style.background = '#f0fdf4';
                 } else {
                     previewText.innerHTML = `<span class="text-warning fw-bold">⚠ Tidak ada data</span> sesuai filter`;
@@ -283,6 +292,17 @@
         }
 
         function doExport(format) {
+            if (format === 'pdf' && window.lastCheckedTotal !== undefined && window.lastCheckedTotal > 300) {
+                if (typeof Swal !== 'undefined') {
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'Data Melebihi Batas PDF',
+                        text: `Data yang dipilih (${window.lastCheckedTotal.toLocaleString()} baris) melebihi batas 300 baris untuk PDF guna mencegah kehabisan memori server. Silakan persempit filter (misal pilih Program Studi) atau gunakan format Excel / CSV.`,
+                        confirmButtonColor: '#3b82f6',
+                    });
+                    return;
+                }
+            }
             const params = getFilterParams();
             window.location.href = `{{ url('management/export') }}/${format}?${params}`;
         }

@@ -84,7 +84,7 @@
                 <tr>
                     <td>{{ $i + 1 }}</td>
                     <td>{{ $p->no_pendaftaran }}</td>
-                    <td>{{ $p->user?->nama_lengkap ?? ($p->user?->name ?? '-') }}</td>
+                    <td>{{ $p->nama_lengkap ?? ($p->user?->name ?? '-') }}</td>
                     <td>{{ $p->programStudi?->nama ?? '-' }}</td>
                     <td>{{ $p->hasilSaw?->skor_akhir ? number_format($p->hasilSaw->skor_akhir, 4) : '-' }}</td>
                     <td>{{ $p->hasilUkt?->golongan_rekomendasi ?? '-' }}</td>

@@ -145,7 +145,7 @@
                     </td>
                     <td>{{ $verifikasi?->reviewer?->name ?? '-' }}</td>
                     <td>{{ $verifikasi?->komentar ?? '-' }}</td>
-                    <td>{{ $p->dokumen->count() }}</td>
+                    <td>{{ $p->dokumen_count ?? $p->dokumen->count() }}</td>
                     <td>{{ $p->created_at->format('d/m/Y') }}</td>
                 </tr>
             @endforeach

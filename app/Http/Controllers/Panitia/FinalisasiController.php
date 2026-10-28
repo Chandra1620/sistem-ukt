@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Panitia;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\FinalisasiUktMassalJob;
 use App\Models\Pendaftaran;
 use App\Models\RiwayatStatus;
 use App\Services\NotifikasiService;
@@ -76,63 +77,25 @@ class FinalisasiController extends Controller
 
     public function finalisasiMassal(Request $request)
     {
-        $periodeId = $request->periode_id;
+        $periodeId = $request->periode_id ? (int) $request->periode_id : null;
 
-        $berhasil = 0;
+        $totalSiap = Pendaftaran::where('status', 'hasil_awal')
+            ->when($periodeId, fn($q) => $q->where('periode_id', $periodeId))
+            ->count();
 
-        DB::transaction(function () use ($periodeId, &$berhasil) {
-            // Kunci baris yang akan difinalisasi (anti-nabrak saat panitia lain memproses bersamaan)
-            $pendaftaranList = Pendaftaran::where('status', 'hasil_awal')
-                ->when($periodeId, fn($q) => $q->where('periode_id', $periodeId))
-                ->with('hasilUkt')
-                ->lockForUpdate()
-                ->get();
-
-            foreach ($pendaftaranList as $pendaftaran) {
-                // Lewati bila status sudah berubah (diproses panitia lain)
-                if ($pendaftaran->status !== 'hasil_awal') continue;
-
-                $hasilUkt = $pendaftaran->hasilUkt;
-                if (!$hasilUkt) continue;
-
-                $hasilUkt->update([
-                    'finalisasi_oleh' => Auth::id(),
-                    'finalisasi_at'   => now(),
-                ]);
-
-                $pendaftaran->update(['status' => 'final_ukt']);
-
-                RiwayatStatus::create([
-                    'pendaftaran_id' => $pendaftaran->id,
-                    'status_lama'    => 'hasil_awal',
-                    'status_baru'    => 'final_ukt',
-                    'keterangan'     => 'UKT difinalisasi massal oleh panitia',
-                    'diubah_oleh'    => Auth::id(),
-                ]);
-
-                NotifikasiService::uktDifinalisasi(
-                    $pendaftaran,
-                    $hasilUkt->golongan_final,
-                    (float) $hasilUkt->nominal_final
-                );
-
-                $berhasil++;
-            }
-        });
-
-        if ($berhasil === 0) {
+        if ($totalSiap === 0) {
             return back()->with('error', 'Tidak ada pendaftaran yang siap difinalisasi.');
         }
 
-        AuditLogService::log(
-            'finalisasi_massal',
-            'Pendaftaran',
-            null,
-            null,
-            ['jumlah' => $berhasil, 'periode_id' => $periodeId]
-        );
+        // Pindahkan seluruh pemrosesan ke background queue job:
+        // - Diproses per chunk kecil (50 pendaftar per batch)
+        // - 1 transaksi database independen per chunk
+        // - Update massal whereIn()->update()
+        // - Bulk insert RiwayatStatus & Notifikasi
+        // - Email dikirim melalui DB::afterCommit() di luar transaksi
+        FinalisasiUktMassalJob::dispatch($periodeId, Auth::id());
 
         return redirect()->route('panitia.hasil-saw.index')
-            ->with('success', "Finalisasi massal berhasil untuk {$berhasil} mahasiswa.");
+            ->with('success', "Finalisasi massal untuk {$totalSiap} mahasiswa sedang diproses di antrean latar belakang.");
     }
 }

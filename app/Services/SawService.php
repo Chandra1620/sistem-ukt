@@ -31,18 +31,13 @@ class SawService
     }
 
     /**
-     * PERHITUNGAN SAW MASSAL (BULK) - dipakai oleh Import ETL.
-     * Kriteria/sub/golongan di-preload sekali; tidak ada query di dalam loop;
-     * insert hasil_saw / detail_saw / hasil_ukt batch; ranking 1x window function.
-     *
-     * @param array<int> $pendaftaranIds
+    /**
+     * Hitung statistik kriteria (min, max, bobot, tipe) dan data golongan UKT
+     * untuk seluruh peserta dalam satu periode. HANYA DIJALANKAN SEKALI di awal.
+     * Mengembalikan plain PHP array yang aman diserialisasi untuk queue batch.
      */
-    public function hitungMassal(array $pendaftaranIds, int $periodeId): void
+    public function getStatistikKriteriaPeriode(int $periodeId): array
     {
-        if (empty($pendaftaranIds)) {
-            return;
-        }
-
         $kriteria = Kriteria::where('periode_id', $periodeId)
             ->with('subKriteria')
             ->orderByRaw("CAST(SUBSTRING(kode, 2) AS INTEGER)")
@@ -57,19 +52,80 @@ class SawService
                 $nilaiList[] = (float) $s->nilai;
             }
             $statistikKriteria[$k->id] = [
-                'max'   => !empty($nilaiList) ? max($nilaiList) : 0.0,
-                'min'   => !empty($nilaiList) ? min($nilaiList) : 0.0,
+                'id'    => $k->id,
+                'kode'  => $k->kode,
                 'tipe'  => $k->tipe,
                 'bobot' => (float) $k->bobot,
-                'kode'  => $k->kode,
+                'max'   => !empty($nilaiList) ? max($nilaiList) : 0.0,
+                'min'   => !empty($nilaiList) ? min($nilaiList) : 0.0,
             ];
         }
 
         $golonganList = GolonganUkt::orderBy('golongan')->get();
+        $golonganRanges = [];
         $nominalByGolongan = [];
         foreach ($golonganList as $g) {
+            $golonganRanges[] = [
+                'golongan' => (int) $g->golongan,
+                'skor_min' => $g->skor_min !== null ? (float) $g->skor_min : null,
+                'skor_max' => $g->skor_max !== null ? (float) $g->skor_max : null,
+            ];
             $nominalByGolongan[(int) $g->golongan] = (float) $g->nominal;
         }
+
+        return [
+            'statistikKriteria' => $statistikKriteria,
+            'nilaiSubById'      => $nilaiSubById,
+            'golonganRanges'    => $golonganRanges,
+            'nominalByGolongan' => $nominalByGolongan,
+        ];
+    }
+
+    /**
+     * Cari golongan UKT berdasarkan range skor dari array yang sudah di-preload.
+     */
+    public function tentukanGolonganDariArray(array $golonganRanges, float $skor): int
+    {
+        foreach ($golonganRanges as $g) {
+            $min = $g['skor_min'] ?? null;
+            $max = $g['skor_max'] ?? null;
+
+            if ($min !== null && $max !== null) {
+                if ($skor >= $min && $skor <= $max) {
+                    return (int) $g['golongan'];
+                }
+            }
+        }
+
+        \Illuminate\Support\Facades\Log::warning(
+            "Skor SAW {$skor} tidak masuk range golongan mana pun. Periksa tabel golongan_ukt."
+        );
+
+        if (!empty($golonganRanges)) {
+            $golongans = array_column($golonganRanges, 'golongan');
+            return (int) min($golongans);
+        }
+
+        return 1;
+    }
+
+    /**
+     * Memproses satu chunk pendaftaran (mis. 100 mahasiswa).
+     * Menggunakan statistik kriteria & golongan yang sudah dihitung SEKALI di awal,
+     * sehingga tidak ada query berulang untuk kriteria/subkriteria/min/max.
+     *
+     * @param array<int> $pendaftaranIds
+     */
+    public function prosesChunk(array $pendaftaranIds, int $periodeId, array $kriteriaData): void
+    {
+        if (empty($pendaftaranIds)) {
+            return;
+        }
+
+        $statistikKriteria = $kriteriaData['statistikKriteria'] ?? [];
+        $nilaiSubById      = $kriteriaData['nilaiSubById'] ?? [];
+        $golonganRanges    = $kriteriaData['golonganRanges'] ?? [];
+        $nominalByGolongan = $kriteriaData['nominalByGolongan'] ?? [];
 
         $pendaftarans = Pendaftaran::whereIn('id', $pendaftaranIds)
             ->with(['dataEkonomi', 'programStudi'])
@@ -79,7 +135,6 @@ class SawService
         $hasilSawRows = [];
         $hasilUktRows = [];
         $detailByPendaftaran = [];
-        $skorByPendaftaran = [];
 
         foreach ($pendaftarans as $p) {
             if ($p->is_kip) {
@@ -100,9 +155,8 @@ class SawService
             $skorAkhir   = 0.0;
             $details     = [];
 
-            foreach ($kriteria as $k) {
-                $stat     = $statistikKriteria[$k->id];
-                $subField = 'sub_' . strtolower($k->kode) . '_id';
+            foreach ($statistikKriteria as $kId => $stat) {
+                $subField = 'sub_' . strtolower($stat['kode']) . '_id';
                 $subId    = $dataEkonomi->$subField ?? null;
                 $nilai    = ($subId && isset($nilaiSubById[$subId])) ? $nilaiSubById[$subId] : 0.0;
 
@@ -116,17 +170,16 @@ class SawService
                 $skorAkhir += $terbobot;
 
                 $details[] = [
-                    'kriteria_id'       => $k->id,
+                    'kriteria_id'       => $kId,
                     'nilai_asli'        => $nilai,
                     'nilai_normalisasi' => $norm,
                     'nilai_terbobot'    => $terbobot,
                 ];
             }
 
-            $golongan = $this->tentukanGolonganDari($golonganList, $skorAkhir);
+            $golongan = $this->tentukanGolonganDariArray($golonganRanges, $skorAkhir);
             $nominal  = $nominalByGolongan[$golongan] ?? 0;
 
-            $skorByPendaftaran[$p->id]   = $skorAkhir;
             $detailByPendaftaran[$p->id] = $details;
 
             $hasilSawRows[] = [
@@ -151,7 +204,6 @@ class SawService
 
         DB::transaction(function () use (
             $pendaftaranIds,
-            $periodeId,
             $hasilSawRows,
             $hasilUktRows,
             $detailByPendaftaran,
@@ -161,72 +213,85 @@ class SawService
             HasilSaw::whereIn('pendaftaran_id', $pendaftaranIds)->delete();
             DB::table('hasil_ukt')->whereIn('pendaftaran_id', $pendaftaranIds)->delete();
 
-            foreach (array_chunk($hasilSawRows, 500) as $chunk) {
-                HasilSaw::insert($chunk);
-            }
-
-            $hasilSawIdByPendaftaran = HasilSaw::whereIn('pendaftaran_id', $pendaftaranIds)
-                ->pluck('id', 'pendaftaran_id');
-
-            $detailRows = [];
-            foreach ($detailByPendaftaran as $pendaftaranId => $details) {
-                $hasilSawId = $hasilSawIdByPendaftaran[$pendaftaranId] ?? null;
-                if (!$hasilSawId) {
-                    continue;
+            if (!empty($hasilSawRows)) {
+                foreach (array_chunk($hasilSawRows, 500) as $chunk) {
+                    HasilSaw::insert($chunk);
                 }
-                foreach ($details as $d) {
-                    $detailRows[] = array_merge($d, [
-                        'hasil_saw_id' => $hasilSawId,
-                        'created_at'   => $now,
-                        'updated_at'   => $now,
-                    ]);
+
+                $hasilSawIdByPendaftaran = HasilSaw::whereIn('pendaftaran_id', $pendaftaranIds)
+                    ->pluck('id', 'pendaftaran_id');
+
+                $detailRows = [];
+                foreach ($detailByPendaftaran as $pendaftaranId => $details) {
+                    $hasilSawId = $hasilSawIdByPendaftaran[$pendaftaranId] ?? null;
+                    if (!$hasilSawId) {
+                        continue;
+                    }
+                    foreach ($details as $d) {
+                        $detailRows[] = array_merge($d, [
+                            'hasil_saw_id' => $hasilSawId,
+                            'created_at'   => $now,
+                            'updated_at'   => $now,
+                        ]);
+                    }
+                }
+
+                if (!empty($detailRows)) {
+                    foreach (array_chunk($detailRows, 500) as $chunk) {
+                        DetailSaw::insert($chunk);
+                    }
                 }
             }
-            foreach (array_chunk($detailRows, 500) as $chunk) {
-                DetailSaw::insert($chunk);
-            }
 
-            foreach (array_chunk($hasilUktRows, 200) as $chunk) {
-                $placeholders = [];
-                $bindings     = [];
-                foreach ($chunk as $r) {
-                    $placeholders[] = '(?, ?, ?, ?, ?, ?, FALSE, ?, ?)';
-                    array_push(
-                        $bindings,
-                        $r['pendaftaran_id'],
-                        $r['golongan_rekomendasi'],
-                        $r['golongan_final'],
-                        $r['nominal_final'],
-                        $r['sumber_pembiayaan'],
-                        $r['dasar_penetapan'],
-                        $now,
-                        $now
+            if (!empty($hasilUktRows)) {
+                foreach (array_chunk($hasilUktRows, 200) as $chunk) {
+                    $placeholders = [];
+                    $bindings     = [];
+                    foreach ($chunk as $r) {
+                        $placeholders[] = '(?, ?, ?, ?, ?, ?, FALSE, ?, ?)';
+                        array_push(
+                            $bindings,
+                            $r['pendaftaran_id'],
+                            $r['golongan_rekomendasi'],
+                            $r['golongan_final'],
+                            $r['nominal_final'],
+                            $r['sumber_pembiayaan'],
+                            $r['dasar_penetapan'],
+                            $now,
+                            $now
+                        );
+                    }
+                    DB::statement(
+                        'INSERT INTO hasil_ukt
+                        (pendaftaran_id, golongan_rekomendasi, golongan_final,
+                         nominal_final, sumber_pembiayaan, dasar_penetapan,
+                         is_override, created_at, updated_at)
+                     VALUES ' . implode(', ', $placeholders),
+                        $bindings
                     );
                 }
-                DB::statement(
-                    'INSERT INTO hasil_ukt
-                    (pendaftaran_id, golongan_rekomendasi, golongan_final,
-                     nominal_final, sumber_pembiayaan, dasar_penetapan,
-                     is_override, created_at, updated_at)
-                 VALUES ' . implode(', ', $placeholders),
-                    $bindings
-                );
             }
 
             Pendaftaran::whereIn('id', $pendaftaranIds)->update(['status' => 'hasil_awal']);
-
-            DB::statement(
-                'UPDATE hasil_saw AS h
-                SET ranking = r.rn
-               FROM (
-                    SELECT id, ROW_NUMBER() OVER (ORDER BY skor_akhir DESC) AS rn
-                      FROM hasil_saw
-                     WHERE periode_id = ?
-               ) AS r
-              WHERE h.id = r.id',
-                [$periodeId]
-            );
         });
+    }
+
+    /**
+     * PERHITUNGAN SAW MASSAL (BULK) - dipakai oleh Import ETL.
+     * Menggunakan preloading data kriteria sekali, memproses chunk,
+     * dan mengupdate ranking 1x query window function.
+     *
+     * @param array<int> $pendaftaranIds
+     */
+    public function hitungMassal(array $pendaftaranIds, int $periodeId): void
+    {
+        if (empty($pendaftaranIds)) {
+            return;
+        }
+
+        $kriteriaData = $this->getStatistikKriteriaPeriode($periodeId);
+        $this->prosesChunk($pendaftaranIds, $periodeId, $kriteriaData);
+        $this->updateRankingPeriode($periodeId);
     }
 
     /**
@@ -475,14 +540,24 @@ class SawService
 
     private function updateRanking(int $periodeId): void
     {
-        // Ranking hanya untuk Non-KIP (yang punya hasil_saw)
-        // Ranking 1 = skor tertinggi = paling mampu secara ekonomi
-        $hasil = HasilSaw::where('periode_id', $periodeId)
-            ->orderBy('skor_akhir', 'desc')
-            ->get();
-
-        foreach ($hasil as $i => $h) {
-            $h->update(['ranking' => $i + 1]);
-        }
+        // Ranking hanya untuk Non-KIP (yang punya hasil_saw pada periode tersebut).
+        // Ranking 1 = skor tertinggi = paling mampu secara ekonomi.
+        // Dioptimasi menjadi 1 query atomic UPDATE menggunakan PostgreSQL Window Function
+        // di dalam DB::transaction, menggantikan loop N query UPDATE sebelumnya.
+        DB::transaction(function () use ($periodeId) {
+            DB::statement(
+                'UPDATE hasil_saw AS h
+                    SET ranking = r.rn,
+                        updated_at = NOW()
+                   FROM (
+                        SELECT id,
+                               ROW_NUMBER() OVER (ORDER BY skor_akhir DESC, id ASC) AS rn
+                          FROM hasil_saw
+                         WHERE periode_id = ?
+                   ) AS r
+                  WHERE h.id = r.id',
+                [$periodeId]
+            );
+        });
     }
 }
