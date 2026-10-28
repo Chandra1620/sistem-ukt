@@ -88,6 +88,9 @@ class SawService
      */
     public function tentukanGolonganDariArray(array $golonganRanges, float $skor): int
     {
+        // Batasi skor evaluasi ke rentang 0..100 untuk mentoleransi deviasi floating point
+        $skorEvaluasi = max(0.0, min(100.0, $skor));
+
         // Urutkan golongan berdasarkan skor_min
         usort($golonganRanges, function ($a, $b) {
             return ($a['skor_min'] ?? 0) <=> ($b['skor_min'] ?? 0);
@@ -102,8 +105,8 @@ class SawService
             if ($min !== null && $max !== null) {
                 $isTeratas = ($index === $total - 1);
                 $matched = $isTeratas
-                    ? ($skor >= $min && $skor <= $max)
-                    : ($skor >= $min && $skor < $max);
+                    ? ($skorEvaluasi >= $min && $skorEvaluasi <= $max)
+                    : ($skorEvaluasi >= $min && $skorEvaluasi < $max);
 
                 if ($matched) {
                     return (int) $g['golongan'];
@@ -112,7 +115,7 @@ class SawService
         }
 
         \Illuminate\Support\Facades\Log::warning(
-            "Skor SAW {$skor} tidak masuk rentang golongan mana pun. Periksa tabel golongan_ukt."
+            "Skor SAW {$skor} (evaluasi: {$skorEvaluasi}) tidak masuk rentang golongan mana pun. Periksa tabel golongan_ukt."
         );
 
         throw new \RuntimeException(
@@ -340,6 +343,9 @@ class SawService
      */
     private function tentukanGolonganDari($golonganList, float $skor): int
     {
+        // Batasi skor evaluasi ke rentang 0..100 untuk mentoleransi deviasi floating point
+        $skorEvaluasi = max(0.0, min(100.0, $skor));
+
         $sorted = $golonganList->sortBy('skor_min')->values();
         $total  = $sorted->count();
 
@@ -350,8 +356,8 @@ class SawService
             if ($min !== null && $max !== null) {
                 $isTeratas = ($index === $total - 1);
                 $matched = $isTeratas
-                    ? ($skor >= $min && $skor <= $max)
-                    : ($skor >= $min && $skor < $max);
+                    ? ($skorEvaluasi >= $min && $skorEvaluasi <= $max)
+                    : ($skorEvaluasi >= $min && $skorEvaluasi < $max);
 
                 if ($matched) {
                     return (int) $g->golongan;
@@ -360,7 +366,7 @@ class SawService
         }
 
         \Illuminate\Support\Facades\Log::warning(
-            "Skor SAW {$skor} tidak masuk rentang golongan mana pun. Periksa tabel golongan_ukt."
+            "Skor SAW {$skor} (evaluasi: {$skorEvaluasi}) tidak masuk rentang golongan mana pun. Periksa tabel golongan_ukt."
         );
 
         throw new \RuntimeException(
