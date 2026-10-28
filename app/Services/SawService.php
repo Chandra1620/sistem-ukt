@@ -61,7 +61,7 @@ class SawService
             ];
         }
 
-        $golonganList = GolonganUkt::orderBy('golongan')->get();
+        $golonganList = GolonganUkt::orderBy('skor_min')->get();
         $golonganRanges = [];
         $nominalByGolongan = [];
         foreach ($golonganList as $g) {
@@ -83,30 +83,41 @@ class SawService
 
     /**
      * Cari golongan UKT berdasarkan range skor dari array yang sudah di-preload.
+     * Rentang kontinu: skor >= skor_min dan skor < skor_max,
+     * kecuali golongan teratas yang inklusif sampai skor_max (100).
      */
     public function tentukanGolonganDariArray(array $golonganRanges, float $skor): int
     {
-        foreach ($golonganRanges as $g) {
+        // Urutkan golongan berdasarkan skor_min
+        usort($golonganRanges, function ($a, $b) {
+            return ($a['skor_min'] ?? 0) <=> ($b['skor_min'] ?? 0);
+        });
+
+        $total = count($golonganRanges);
+
+        foreach ($golonganRanges as $index => $g) {
             $min = $g['skor_min'] ?? null;
             $max = $g['skor_max'] ?? null;
 
             if ($min !== null && $max !== null) {
-                if ($skor >= $min && $skor <= $max) {
+                $isTeratas = ($index === $total - 1);
+                $matched = $isTeratas
+                    ? ($skor >= $min && $skor <= $max)
+                    : ($skor >= $min && $skor < $max);
+
+                if ($matched) {
                     return (int) $g['golongan'];
                 }
             }
         }
 
         \Illuminate\Support\Facades\Log::warning(
-            "Skor SAW {$skor} tidak masuk range golongan mana pun. Periksa tabel golongan_ukt."
+            "Skor SAW {$skor} tidak masuk rentang golongan mana pun. Periksa tabel golongan_ukt."
         );
 
-        if (!empty($golonganRanges)) {
-            $golongans = array_column($golonganRanges, 'golongan');
-            return (int) min($golongans);
-        }
-
-        return 1;
+        throw new \RuntimeException(
+            "Skor SAW {$skor} tidak masuk rentang golongan mana pun. Periksa konfigurasi rentang skor pada tabel golongan_ukt."
+        );
     }
 
     /**
@@ -324,28 +335,37 @@ class SawService
 
     /**
      * Versi yang menerima koleksi golongan yang sudah di-preload (untuk bulk).
+     * Rentang kontinu: skor >= skor_min dan skor < skor_max,
+     * kecuali golongan teratas yang inklusif sampai skor_max (100).
      */
     private function tentukanGolonganDari($golonganList, float $skor): int
     {
-        $golongan = $golonganList->first(function ($g) use ($skor) {
+        $sorted = $golonganList->sortBy('skor_min')->values();
+        $total  = $sorted->count();
+
+        foreach ($sorted as $index => $g) {
             $min = $g->skor_min !== null ? (float) $g->skor_min : null;
             $max = $g->skor_max !== null ? (float) $g->skor_max : null;
 
             if ($min !== null && $max !== null) {
-                return $skor >= $min && $skor <= $max;
-            }
-            return false;
-        });
+                $isTeratas = ($index === $total - 1);
+                $matched = $isTeratas
+                    ? ($skor >= $min && $skor <= $max)
+                    : ($skor >= $min && $skor < $max);
 
-        if ($golongan) {
-            return (int) $golongan->golongan;
+                if ($matched) {
+                    return (int) $g->golongan;
+                }
+            }
         }
 
         \Illuminate\Support\Facades\Log::warning(
-            "Skor SAW {$skor} tidak masuk range golongan mana pun. Periksa tabel golongan_ukt."
+            "Skor SAW {$skor} tidak masuk rentang golongan mana pun. Periksa tabel golongan_ukt."
         );
 
-        return (int) ($golonganList->min('golongan') ?? 1);
+        throw new \RuntimeException(
+            "Skor SAW {$skor} tidak masuk rentang golongan mana pun. Periksa konfigurasi rentang skor pada tabel golongan_ukt."
+        );
     }
 
     /**
@@ -571,7 +591,7 @@ class SawService
 
     private function tentukanGolongan(float $skor): int
     {
-        $golongan = GolonganUkt::orderBy('golongan')->get();
+        $golongan = GolonganUkt::orderBy('skor_min')->get();
         return $this->tentukanGolonganDari($golongan, $skor);
     }
 
