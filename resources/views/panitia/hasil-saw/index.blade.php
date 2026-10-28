@@ -4,7 +4,11 @@
 
 @section('content')
     {{-- Finalisasi Massal --}}
-    @php $totalHasilAwal = \App\Models\Pendaftaran::where('status', 'hasil_awal')->count(); @endphp
+    @php
+        $totalHasilAwal = $totalMenungguFinalisasi ?? \App\Models\Pendaftaran::where('status', 'hasil_awal')
+            ->when($periode, fn($q) => $q->where('periode_id', $periode->id))
+            ->count();
+    @endphp
     @if ($totalHasilAwal > 0)
         <div class="alert alert-warning border-0 shadow-sm mb-4 d-flex justify-content-between align-items-center">
             <div>
@@ -17,7 +21,7 @@
                     <input type="hidden" name="periode_id" value="{{ $periode->id }}">
                 @endif
                 <button type="submit" class="btn btn-warning btn-sm"
-                    data-confirm="Finalisasi semua {{ $totalHasilAwal }} mahasiswa sekaligus?"
+                    data-confirm="Finalisasi semua {{ $totalHasilAwal }} mahasiswa sekaligus?">
                     <i class="bi bi-check-all me-1"></i> Finalisasi Semua
                 </button>
             </form>
@@ -63,6 +67,7 @@
                 <div class="col-md-2">
                     <select name="golongan" class="form-select-modern">
                         <option value="">Semua Golongan</option>
+                        <option value="kip" {{ request('golongan') === 'kip' ? 'selected' : '' }}>KIP Kuliah</option>
                         @for ($i = 1; $i <= 8; $i++)
                             <option value="{{ $i }}" {{ request('golongan') == $i ? 'selected' : '' }}>
                                 Golongan {{ $i }}
@@ -102,50 +107,89 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @forelse($hasilSaw as $h)
-                            <tr class="saw-row {{ $h->ranking <= 3 ? 'top-rank' : '' }}">
+                        @forelse($hasilSaw as $p)
+                            <tr class="saw-row {{ ($p->hasilSaw?->ranking && $p->hasilSaw->ranking <= 3) ? 'top-rank' : '' }}">
                                 <td data-label="Ranking">
-                                    @if ($h->ranking <= 3)
-                                        <div class="ranking-badge rank-{{ $h->ranking }}">
-                                            <i class="bi bi-star-fill"></i>
-                                            <span>#{{ $h->ranking }}</span>
-                                        </div>
+                                    @if ($p->is_kip)
+                                        <div class="ranking-normal text-muted">-</div>
+                                    @elseif ($p->hasilSaw && $p->hasilSaw->ranking)
+                                        @if ($p->hasilSaw->ranking <= 3)
+                                            <div class="ranking-badge rank-{{ $p->hasilSaw->ranking }}">
+                                                <i class="bi bi-star-fill"></i>
+                                                <span>#{{ $p->hasilSaw->ranking }}</span>
+                                            </div>
+                                        @else
+                                            <div class="ranking-normal">#{{ $p->hasilSaw->ranking }}</div>
+                                        @endif
                                     @else
-                                        <div class="ranking-normal">#{{ $h->ranking }}</div>
+                                        <div class="ranking-normal text-muted">-</div>
                                     @endif
                                 </td>
                                 <td data-label="No. Pendaftaran">
-                                    <span class="no-pendaftaran">{{ $h->pendaftaran->no_pendaftaran }}</span>
+                                    <span class="no-pendaftaran">{{ $p->no_pendaftaran }}</span>
                                 </td>
                                 <td data-label="Nama Mahasiswa">
                                     <div class="user-cell">
                                         <div class="user-avatar-mini"
                                             style="background: linear-gradient(135deg, #3b82f6, #8b5cf6)">
-                                            {{ strtoupper(substr($h->pendaftaran->nama_lengkap, 0, 1)) }}
+                                            {{ strtoupper(substr($p->nama_lengkap, 0, 1)) }}
                                         </div>
-                                        <div class="user-name">{{ $h->pendaftaran->nama_lengkap }}</div>
+                                        <div>
+                                            <div class="user-name d-flex align-items-center gap-1">
+                                                {{ $p->nama_lengkap }}
+                                                @if ($p->is_kip)
+                                                    <span class="badge bg-warning text-dark" style="font-size: 0.65rem; padding: 2px 6px;">
+                                                        <i class="bi bi-award-fill"></i> KIP
+                                                    </span>
+                                                @endif
+                                            </div>
+                                        </div>
                                     </div>
                                 </td>
-                                <td data-label="Program Studi" class="small">{{ $h->pendaftaran->programStudi->nama }}
+                                <td data-label="Program Studi" class="small">{{ $p->programStudi->nama ?? '-' }}
                                 </td>
                                 <td data-label="Skor SAW">
-                                    <div class="skor-badge">
-                                        {{ number_format($h->skor_akhir, 2) }}
-                                    </div>
+                                    @if ($p->is_kip)
+                                        <span class="text-muted fw-semibold">-</span>
+                                    @elseif ($p->hasilSaw && $p->hasilSaw->skor_akhir !== null)
+                                        <div class="skor-badge">
+                                            {{ number_format($p->hasilSaw->skor_akhir, 2) }}
+                                        </div>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
                                 </td>
                                 <td data-label="Gol. Rekomendasi">
-                                    <span class="rekomendasi-badge">
-                                        Golongan {{ $h->rekomendasi_golongan }}
-                                    </span>
+                                    @if ($p->is_kip)
+                                        <span class="badge bg-warning text-dark">
+                                            <i class="bi bi-award-fill me-1"></i>KIP
+                                        </span>
+                                    @elseif ($p->hasilSaw && $p->hasilSaw->rekomendasi_golongan)
+                                        <span class="rekomendasi-badge">
+                                            Golongan {{ $p->hasilSaw->rekomendasi_golongan }}
+                                        </span>
+                                    @elseif ($p->hasilUkt && $p->hasilUkt->golongan_rekomendasi !== null)
+                                        <span class="rekomendasi-badge">
+                                            Golongan {{ $p->hasilUkt->golongan_rekomendasi }}
+                                        </span>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
                                 </td>
                                 <td data-label="Gol. Final">
-                                    @if ($h->pendaftaran->hasilUkt)
+                                    @if ($p->hasilUkt)
                                         <div class="final-golongan">
-                                            <span
-                                                class="golongan-final-badge gol-{{ $h->pendaftaran->hasilUkt->golongan_final }}">
-                                                Gol. {{ $h->pendaftaran->hasilUkt->golongan_final }}
-                                            </span>
-                                            @if ($h->pendaftaran->hasilUkt->is_override)
+                                            @if ($p->is_kip)
+                                                <span class="badge bg-warning text-dark">
+                                                    <i class="bi bi-award-fill me-1"></i>KIP
+                                                </span>
+                                            @else
+                                                <span
+                                                    class="golongan-final-badge gol-{{ $p->hasilUkt->golongan_final }}">
+                                                    Gol. {{ $p->hasilUkt->golongan_final }}
+                                                </span>
+                                            @endif
+                                            @if ($p->hasilUkt->is_override)
                                                 <span class="override-badge">
                                                     Override
                                                 </span>
@@ -156,13 +200,13 @@
                                     @endif
                                 </td>
                                 <td data-label="Status">
-                                    <span class="status-badge status-{{ $h->pendaftaran->warna_badge }}">
-                                        <i class="bi {{ $h->pendaftaran->status_icon ?? 'bi-circle' }}"></i>
-                                        {{ $h->pendaftaran->label_status }}
+                                    <span class="status-badge status-{{ $p->warna_badge }}">
+                                        <i class="bi {{ $p->status_icon ?? 'bi-circle' }}"></i>
+                                        {{ $p->label_status }}
                                     </span>
                                 </td>
                                 <td data-label="Aksi">
-                                    <a href="{{ route('panitia.hasil-saw.show', $h->pendaftaran) }}" class="btn-detail">
+                                    <a href="{{ route('panitia.hasil-saw.show', $p) }}" class="btn-detail">
                                         <i class="bi bi-eye"></i> Detail
                                     </a>
                                 </td>

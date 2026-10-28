@@ -12,41 +12,77 @@ class HasilSawController extends Controller
 {
     public function index(Request $request)
     {
-        $periode = PeriodeSeleksi::where('status', 'aktif')->first();
+        $periode = null;
+        if ($request->filled('periode_id')) {
+            $periode = PeriodeSeleksi::find($request->periode_id);
+        }
+        if (!$periode) {
+            $periode = PeriodeSeleksi::where('status', 'aktif')->first();
+        }
 
-        $query = HasilSaw::with([
-            'pendaftaran.user',
-            'pendaftaran.programStudi',
-            'pendaftaran.hasilUkt',
-        ]);
+        // Query dasar dari Pendaftaran dengan status ['hasil_awal', 'final_ukt', 'selesai']
+        $query = Pendaftaran::whereIn('pendaftaran.status', ['hasil_awal', 'final_ukt', 'selesai'])
+            ->with([
+                'hasilSaw',
+                'hasilUkt',
+                'user',
+                'programStudi',
+            ]);
 
         if ($periode) {
-            $query->where('periode_id', $periode->id);
+            $query->where('pendaftaran.periode_id', $periode->id);
         }
 
-        if ($request->prodi) {
-            $query->whereHas('pendaftaran', function ($q) use ($request) {
-                $q->where('program_studi_id', $request->prodi);
+        if ($request->filled('prodi')) {
+            $query->where('pendaftaran.program_studi_id', $request->prodi);
+        }
+
+        if ($request->filled('golongan')) {
+            $golonganVal = $request->golongan;
+            if ($golonganVal === 'kip' || $golonganVal === '0') {
+                $query->where(function ($q) {
+                    $q->whereRaw('"pendaftaran"."is_kip" IS TRUE')
+                      ->orWhereHas('hasilUkt', fn($hu) => $hu->where('golongan_final', 0));
+                });
+            } else {
+                $query->where(function ($q) use ($golonganVal) {
+                    $q->whereHas('hasilUkt', fn($hu) => $hu->where('golongan_final', $golonganVal))
+                      ->orWhereHas('hasilSaw', fn($hs) => $hs->where('rekomendasi_golongan', $golonganVal));
+                });
+            }
+        }
+
+        if ($request->filled('search')) {
+            $search = trim($request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('pendaftaran.nama_lengkap', 'ilike', '%' . $search . '%')
+                    ->orWhere('pendaftaran.no_pendaftaran', 'ilike', '%' . $search . '%');
             });
         }
 
-        if ($request->golongan) {
-            $query->where('rekomendasi_golongan', $request->golongan);
-        }
+        // Sorting: ranking ASC NULLS LAST agar pendaftar Non-KIP terurut berdasarkan ranking SAW,
+        // sedangkan mahasiswa KIP (yang tidak memiliki ranking/skor SAW) ditempatkan di bawah (NULLS LAST).
+        $query->leftJoin('hasil_saw', 'pendaftaran.id', '=', 'hasil_saw.pendaftaran_id')
+            ->select('pendaftaran.*')
+            ->orderByRaw('hasil_saw.ranking ASC NULLS LAST')
+            ->orderBy('pendaftaran.nama_lengkap', 'asc');
 
-        if ($request->search) {
-            $query->whereHas('pendaftaran', function ($q) use ($request) {
-                $q->where('nama_lengkap', 'like', '%' . $request->search . '%')
-                    ->orWhere('no_pendaftaran', 'like', '%' . $request->search . '%');
-            });
-        }
+        $pendaftarans = $query->paginate(20);
+        $hasilSaw     = $pendaftarans; // Alias untuk backward compatibility view
 
-        $hasilSaw     = $query->orderBy('ranking')->paginate(20);
+        // Hitung total mahasiswa pada periode ini yang masih menunggu finalisasi (status: hasil_awal)
+        $totalMenungguFinalisasi = Pendaftaran::where('status', 'hasil_awal')
+            ->when($periode, fn($q) => $q->where('periode_id', $periode->id))
+            ->count();
+
         $programStudi = \App\Models\ProgramStudi::aktif()->get();
+
         return view('panitia.hasil-saw.index', compact(
+            'pendaftarans',
             'hasilSaw',
             'periode',
-            'programStudi'
+            'programStudi',
+            'totalMenungguFinalisasi'
         ));
     }
 

@@ -299,6 +299,13 @@
                         </div>
                     </div>
                 </div>
+            @else
+                <div class="card premium-card mb-4">
+                    <div class="card-body p-4 text-center text-muted">
+                        <i class="bi bi-info-circle fs-3 d-block mb-2"></i>
+                        Data perhitungan SAW belum tersedia untuk pendaftar ini.
+                    </div>
+                </div>
             @endif
 
             {{-- Data Ekonomi Premium --}}
