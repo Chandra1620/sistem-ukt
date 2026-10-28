@@ -47,9 +47,14 @@ class KriteriaController extends Controller
 
     public function create()
     {
-        $periodeAktif = $this->getPeriodeAktif();
-        $periode      = PeriodeSeleksi::orderByDesc('tahun')->get();
-        return view('admin.kriteria.create', compact('periode', 'periodeAktif'));
+        $periodeAktif    = $this->getPeriodeAktif();
+        $periode         = PeriodeSeleksi::orderByDesc('tahun')->get();
+        $bobotPerPeriode = Kriteria::selectRaw('periode_id, sum(bobot) as total')
+            ->groupBy('periode_id')
+            ->pluck('total', 'periode_id')
+            ->map(fn($v) => round((float) $v, 2));
+
+        return view('admin.kriteria.create', compact('periode', 'periodeAktif', 'bobotPerPeriode'));
     }
 
     public function store(Request $request)
@@ -61,6 +66,16 @@ class KriteriaController extends Controller
             'tipe'       => 'required|in:cost,benefit',
             'periode_id' => 'required|exists:periode_seleksi,id',
         ]);
+
+        // Hitung total bobot yang sudah ada pada periode_id yang dipilih
+        $totalBobotAda = round((float) Kriteria::where('periode_id', $request->periode_id)->sum('bobot'), 2);
+        $bobotBaru     = round((float) $request->bobot, 2);
+        $sisaTersedia  = round(max(0, 100 - $totalBobotAda), 2);
+        $totalSetelah  = round($totalBobotAda + $bobotBaru, 2);
+
+        if ($totalSetelah > 100.00) {
+            return back()->withInput()->with('error', "Total bobot kriteria pada periode ini tidak boleh melebihi 100% (total saat ini: {$totalBobotAda}%, input: {$bobotBaru}% = {$totalSetelah}%). Sisa bobot yang tersedia: {$sisaTersedia}%.");
+        }
 
         // Cegah kode duplikat dalam satu periode
         $sudahAda = Kriteria::where('periode_id', $request->periode_id)
@@ -95,11 +110,27 @@ class KriteriaController extends Controller
     public function edit(Kriteria $kriteria)
     {
         $periode = PeriodeSeleksi::orderByDesc('tahun')->get();
-        return view('admin.kriteria.edit', compact('kriteria', 'periode'));
+        $totalBobotLain = round((float) Kriteria::where('periode_id', $kriteria->periode_id)
+            ->where('id', '!=', $kriteria->id)
+            ->sum('bobot'), 2);
+        $sisaTersedia = round(max(0, 100 - $totalBobotLain), 2);
+        $totalSaatIni = round((float) Kriteria::where('periode_id', $kriteria->periode_id)->sum('bobot'), 2);
+
+        return view('admin.kriteria.edit', compact(
+            'kriteria',
+            'periode',
+            'totalBobotLain',
+            'sisaTersedia',
+            'totalSaatIni'
+        ));
     }
 
     public function update(Request $request, Kriteria $kriteria)
     {
+        if (!$request->filled('periode_id')) {
+            $request->merge(['periode_id' => $kriteria->periode_id]);
+        }
+
         $request->validate([
             'nama'       => 'required|string|max:255',
             'kode'       => 'required|string|max:10',
@@ -107,6 +138,18 @@ class KriteriaController extends Controller
             'tipe'       => 'required|in:cost,benefit',
             'periode_id' => 'required|exists:periode_seleksi,id',
         ]);
+
+        // Hitung total bobot kriteria lain dalam periode yang sama
+        $totalBobotLain = round((float) Kriteria::where('periode_id', $request->periode_id)
+            ->where('id', '!=', $kriteria->id)
+            ->sum('bobot'), 2);
+        $bobotBaru    = round((float) $request->bobot, 2);
+        $sisaTersedia = round(max(0, 100 - $totalBobotLain), 2);
+        $totalSetelah = round($totalBobotLain + $bobotBaru, 2);
+
+        if ($totalSetelah > 100.00) {
+            return back()->withInput()->with('error', "Total bobot kriteria pada periode ini tidak boleh melebihi 100% (total kriteria lain: {$totalBobotLain}%, input: {$bobotBaru}% = {$totalSetelah}%). Sisa bobot yang tersedia: {$sisaTersedia}%.");
+        }
 
         // Cegah kode duplikat dalam periode yang sama (kecuali diri sendiri)
         $sudahAda = Kriteria::where('periode_id', $request->periode_id)

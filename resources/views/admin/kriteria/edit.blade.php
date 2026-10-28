@@ -22,6 +22,36 @@
                     <form action="{{ route('admin.kriteria.update', $kriteria) }}" method="POST" id="kriteriaForm">
                         @csrf @method('PUT')
 
+                        <input type="hidden" name="periode_id" value="{{ old('periode_id', $kriteria->periode_id) }}">
+
+                        <!-- Info Banner Alokasi Bobot Periode -->
+                        <div class="card bg-light border-0 rounded-3 mb-4 p-3">
+                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                <div>
+                                    <div class="text-muted small fw-medium">
+                                        <i class="bi bi-calendar3 me-1"></i> Periode: <strong>{{ $kriteria->periode->nama ?? '-' }} ({{ $kriteria->periode->tahun ?? '-' }})</strong>
+                                    </div>
+                                    <div class="small mt-1">
+                                        Total Kriteria Lain: <strong>{{ $totalBobotLain }}%</strong> &bull; Bobot Kriteria Ini: <strong>{{ round($kriteria->bobot, 2) }}%</strong>
+                                    </div>
+                                </div>
+                                <div class="text-end">
+                                    <span class="badge {{ $sisaTersedia > 0 ? 'bg-primary' : 'bg-secondary' }}" style="font-size: 0.85rem;">
+                                        Maksimal Bobot: {{ $sisaTersedia }}%
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="progress mt-2" style="height: 6px;">
+                                @php $pct = min(100, $totalSaatIni); @endphp
+                                <div class="progress-bar {{ $totalSaatIni == 100 ? 'bg-success' : ($totalSaatIni > 100 ? 'bg-danger' : 'bg-info') }}"
+                                    style="width: {{ $pct }}%;"></div>
+                            </div>
+                            <div class="small text-muted mt-2">
+                                Total bobot periode saat ini: <strong>{{ $totalSaatIni }}%</strong>.
+                                Sisa alokasi maksimal untuk kriteria ini: <strong>{{ $sisaTersedia }}%</strong> agar total tidak melebihi 100%.
+                            </div>
+                        </div>
+
                         <!-- Kode Kriteria -->
                         <div class="form-group-modern mb-4">
                             <label class="form-label-modern">
@@ -573,9 +603,9 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            // Get current total bobot from other kriteria (excluding this one)
-            const currentTotalBobot = {{ $currentTotalBobot ?? 0 }};
-            const currentBobot = {{ $kriteria->bobot }};
+            // Get total bobot kriteria lain dalam periode yang sama
+            const totalBobotLain = {{ $totalBobotLain ?? 0 }};
+            const maksBisa = {{ $sisaTersedia ?? 100 }};
 
             // Bobot slider synchronization
             const bobotInput = document.getElementById('bobotKriteria');
@@ -586,24 +616,21 @@
                 bobotInput.value = value;
                 bobotSlider.value = value;
 
-                // Calculate new total (other kriteria total + new value)
-                const newTotal = (currentTotalBobot - currentBobot) + parseFloat(value);
-                const remaining = 100 - newTotal;
+                const val = parseFloat(value || 0);
+                const newTotal = Math.round((totalBobotLain + val) * 100) / 100;
 
                 if (newTotal > 100) {
                     bobotHint.innerHTML =
-                        '<i class="bi bi-exclamation-triangle-fill text-danger"></i> <strong class="text-danger">Perhatian!</strong> Total bobot akan melebihi 100% (' +
-                        newTotal + '%)!';
+                        `<i class="bi bi-exclamation-triangle-fill text-danger"></i> <strong class="text-danger">Perhatian!</strong> Total bobot periode akan melebihi 100% (${newTotal}%). Maksimal untuk kriteria ini: <strong>${maksBisa}%</strong>`;
                     bobotHint.style.color = '#dc2626';
-                    document.querySelector('.btn-submit').disabled = false;
                 } else if (newTotal === 100) {
                     bobotHint.innerHTML =
-                        '<i class="bi bi-check-circle-fill text-success"></i> <strong class="text-success">Sempurna!</strong> Total bobot akan menjadi 100%';
+                        '<i class="bi bi-check-circle-fill text-success"></i> <strong class="text-success">Sempurna!</strong> Total bobot periode akan tepat 100.00%';
                     bobotHint.style.color = '#10b981';
                 } else {
                     bobotHint.innerHTML =
-                        `<i class="bi bi-info-circle"></i> Total bobot akan menjadi <strong>${newTotal}%</strong> (butuh ${100 - newTotal}% lagi untuk mencapai 100%)`;
-                    bobotHint.style.color = '#94a3b8';
+                        `<i class="bi bi-info-circle"></i> Total bobot periode akan menjadi <strong>${newTotal}%</strong> (tersedia sisa ${(100 - newTotal).toFixed(1)}% lagi)`;
+                    bobotHint.style.color = '#64748b';
                 }
             }
 
@@ -628,13 +655,12 @@
             const submitBtn = document.getElementById('submitBtn');
 
             form.addEventListener('submit', function(e) {
-                const bobot = parseFloat(bobotInput.value);
-                const newTotal = (currentTotalBobot - currentBobot) + bobot;
+                const bobot = parseFloat(bobotInput.value || 0);
+                const newTotal = Math.round((totalBobotLain + bobot) * 100) / 100;
 
                 if (newTotal > 100) {
                     e.preventDefault();
-                    alert('⚠️ Total bobot tidak boleh melebihi 100%!\n\nTotal setelah update: ' + newTotal +
-                        '%');
+                    alert(`⚠️ Total bobot tidak boleh melebihi 100%!\n\nTotal kriteria lain: ${totalBobotLain}%\nInput: ${bobot}%\nTotal setelah update: ${newTotal}%\n\nMaksimal yang diizinkan untuk kriteria ini: ${maksBisa}%`);
                     return false;
                 }
 

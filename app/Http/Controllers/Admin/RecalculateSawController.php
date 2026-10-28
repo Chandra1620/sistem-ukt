@@ -21,6 +21,12 @@ class RecalculateSawController extends Controller
 
         $periode = PeriodeSeleksi::findOrFail($request->periode_id);
 
+        // Validasi total bobot kriteria pada periode ini harus tepat 100%
+        $totalBobot = round((float) \App\Models\Kriteria::where('periode_id', $periode->id)->sum('bobot'), 2);
+        if ($totalBobot != 100.00) {
+            return back()->with('error', "Perhitungan SAW tidak dapat dijalankan karena total bobot kriteria pada periode {$periode->nama} saat ini adalah {$totalBobot}%. Total bobot harus tepat 100.00% agar perhitungan golongan UKT valid. Silakan sesuaikan bobot kriteria terlebih dahulu.");
+        }
+
         // Hanya pendaftaran yang belum final yang boleh dihitung ulang
         $totalEligible = Pendaftaran::where('periode_id', $periode->id)
             ->whereIn('status', [

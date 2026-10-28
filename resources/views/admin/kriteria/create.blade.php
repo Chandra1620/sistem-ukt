@@ -26,10 +26,10 @@
                             <label class="form-label fw-semibold">
                                 Periode <span class="text-danger">*</span>
                             </label>
-                            <select name="periode_id" class="form-select @error('periode_id') is-invalid @enderror">
+                            <select name="periode_id" id="periodeSelect" class="form-select @error('periode_id') is-invalid @enderror">
                                 <option value="">-- Pilih Periode --</option>
                                 @foreach ($periode as $p)
-                                    <option value="{{ $p->id }}" {{ old('periode_id') == $p->id ? 'selected' : '' }}>
+                                    <option value="{{ $p->id }}" {{ old('periode_id', $periodeAktif->id ?? '') == $p->id ? 'selected' : '' }}>
                                         {{ $p->nama }} ({{ $p->tahun }})
                                     </option>
                                 @endforeach
@@ -38,6 +38,33 @@
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
                         </div>
+
+                        <!-- Card Info Bobot Periode Terpilih -->
+                        <div class="card bg-light border-0 rounded-3 mb-4 p-3" id="bobotInfoCard">
+                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                <div>
+                                    <div class="text-muted small fw-medium">
+                                        <i class="bi bi-pie-chart-fill text-primary me-1"></i> Status Alokasi Bobot Periode
+                                    </div>
+                                    <div class="fw-bold mt-1">
+                                        Terpakai: <span id="bobotTerpakaiText">0</span>% / 100%
+                                    </div>
+                                </div>
+                                <div class="text-end">
+                                    <span class="badge" id="sisaBobotBadge" style="font-size: 0.85rem;">
+                                        Sisa: <span id="sisaBobotText">100</span>%
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="progress mt-2" style="height: 6px;">
+                                <div class="progress-bar" id="bobotProgressBar" role="progressbar" style="width: 0%;"></div>
+                            </div>
+                            <div class="small text-danger mt-2" id="bobotFullWarning" style="display: none;">
+                                <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                                Total bobot periode ini sudah mencapai 100%. Tidak dapat menambah kriteria baru dengan bobot > 0 kecuali kriteria lain dikurangi terlebih dahulu.
+                            </div>
+                        </div>
+
                         <!-- Periode Info -->
                         <div class="info-banner mb-4">
                             <i class="bi bi-calendar-check-fill"></i>
@@ -627,22 +654,78 @@
                 bobotInput.value = value;
                 bobotSlider.value = value;
 
-                // Update hint with total bobot check
-                const currentTotal = parseFloat(value) + {{ $currentTotalBobot ?? 0 }};
-                const remaining = 100 - currentTotal;
+            const bobotPerPeriode = @json($bobotPerPeriode ?? []);
+            const periodeSelect = document.getElementById('periodeSelect');
+
+            function getSelectedPeriodeTotal() {
+                const pId = periodeSelect ? periodeSelect.value : '';
+                return pId && bobotPerPeriode[pId] !== undefined ? parseFloat(bobotPerPeriode[pId]) : 0;
+            }
+
+            function updateBobotInfo() {
+                const pId = periodeSelect ? periodeSelect.value : '';
+                const card = document.getElementById('bobotInfoCard');
+                if (!card) return;
+
+                if (!pId) {
+                    card.style.display = 'none';
+                    return;
+                }
+                card.style.display = 'block';
+
+                const terpakai = getSelectedPeriodeTotal();
+                const sisa = Math.max(0, Math.round((100 - terpakai) * 100) / 100);
+
+                document.getElementById('bobotTerpakaiText').textContent = terpakai.toFixed(1);
+                document.getElementById('sisaBobotText').textContent = sisa.toFixed(1);
+
+                const progressBar = document.getElementById('bobotProgressBar');
+                progressBar.style.width = Math.min(100, terpakai) + '%';
+
+                const badge = document.getElementById('sisaBobotBadge');
+                const warning = document.getElementById('bobotFullWarning');
+
+                if (terpakai >= 100) {
+                    badge.className = 'badge bg-danger text-white';
+                    progressBar.className = 'progress-bar bg-danger';
+                    warning.style.display = 'block';
+                } else if (terpakai >= 80) {
+                    badge.className = 'badge bg-warning text-dark';
+                    progressBar.className = 'progress-bar bg-warning';
+                    warning.style.display = 'none';
+                } else {
+                    badge.className = 'badge bg-success text-white';
+                    progressBar.className = 'progress-bar bg-success';
+                    warning.style.display = 'none';
+                }
+
+                updateBobot(bobotInput.value || 0);
+            }
+
+            if (periodeSelect) {
+                periodeSelect.addEventListener('change', updateBobotInfo);
+            }
+
+            function updateBobot(value) {
+                bobotInput.value = value;
+                bobotSlider.value = value;
+
+                const baseTotal = getSelectedPeriodeTotal();
+                const currentTotal = Math.round((baseTotal + parseFloat(value || 0)) * 100) / 100;
+                const remaining = Math.max(0, Math.round((100 - baseTotal) * 100) / 100);
 
                 if (currentTotal > 100) {
                     bobotHint.innerHTML =
-                        '<i class="bi bi-exclamation-triangle-fill text-danger"></i> <strong class="text-danger">Perhatian!</strong> Total bobot akan melebihi 100%!';
+                        `<i class="bi bi-exclamation-triangle-fill text-danger"></i> <strong class="text-danger">Perhatian!</strong> Total bobot akan melebihi 100% (${currentTotal}%). Sisa yang tersedia: <strong>${remaining}%</strong>`;
                     bobotHint.style.color = '#dc2626';
                 } else if (currentTotal === 100) {
                     bobotHint.innerHTML =
-                        '<i class="bi bi-check-circle-fill text-success"></i> <strong class="text-success">Sempurna!</strong> Total bobot akan menjadi 100%';
+                        '<i class="bi bi-check-circle-fill text-success"></i> <strong class="text-success">Sempurna!</strong> Total bobot periode akan tepat 100.00%';
                     bobotHint.style.color = '#10b981';
                 } else {
                     bobotHint.innerHTML =
-                        `<i class="bi bi-info-circle"></i> Total bobot akan menjadi <strong>${currentTotal}%</strong> (butuh ${100 - currentTotal}% lagi untuk mencapai 100%)`;
-                    bobotHint.style.color = '#94a3b8';
+                        `<i class="bi bi-info-circle"></i> Total bobot periode akan menjadi <strong>${currentTotal}%</strong> (sisa yang tersedia: <strong>${(100 - currentTotal).toFixed(1)}%</strong>)`;
+                    bobotHint.style.color = '#64748b';
                 }
             }
 
@@ -665,26 +748,19 @@
             // Auto-generate kode suggestion
             const kodeInput = document.getElementById('kodeKriteria');
             const namaInput = document.getElementById('namaKriteria');
-            const existingCount = {{ $kriteriaCount ?? 0 }};
-
-            kodeInput.addEventListener('focus', function() {
-                if (!this.value) {
-                    const nextNumber = existingCount + 1;
-                    this.value = `C${nextNumber}`;
-                }
-            });
 
             // Form validation before submit
             const form = document.getElementById('kriteriaForm');
             const submitBtn = document.getElementById('submitBtn');
 
             form.addEventListener('submit', function(e) {
-                const bobot = parseFloat(bobotInput.value);
-                const currentTotal = bobot + {{ $currentTotalBobot ?? 0 }};
+                const bobot = parseFloat(bobotInput.value || 0);
+                const baseTotal = getSelectedPeriodeTotal();
+                const currentTotal = Math.round((bobot + baseTotal) * 100) / 100;
 
                 if (currentTotal > 100) {
                     e.preventDefault();
-                    alert('⚠️ Total bobot tidak boleh melebihi 100%!\n\nSaat ini: ' + currentTotal + '%');
+                    alert(`⚠️ Total bobot tidak boleh melebihi 100%!\n\nTotal saat ini: ${baseTotal}%\nInput: ${bobot}%\nTotal setelah ditambah: ${currentTotal}%\nSisa tersedia: ${Math.max(0, 100 - baseTotal)}%`);
                     return false;
                 }
 
@@ -693,6 +769,9 @@
                 submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> <span>Menyimpan...</span>';
                 return true;
             });
+
+            // Trigger initial check
+            updateBobotInfo();
 
             // Character counter for nama
             namaInput.addEventListener('input', function() {
