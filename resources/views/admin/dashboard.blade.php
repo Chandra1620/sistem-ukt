@@ -98,6 +98,30 @@
         </div>
     </div>
 
+    {{-- Filter Periode Sederhana --}}
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div class="d-flex align-items-center gap-2">
+            <h6 class="fw-bold mb-0 text-dark">Data Periode Seleksi</h6>
+            <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-3 py-1">
+                <i class="bi bi-calendar2-check me-1"></i>{{ $periodeTerpilih ? $periodeTerpilih->nama . ' (' . ($periodeTerpilih->tahun ?? '-') . ')' : 'Semua Periode' }}
+            </span>
+        </div>
+        <form method="GET" action="{{ route('admin.dashboard') }}" class="d-flex align-items-center gap-2">
+            <label for="admin-periode-select" class="small text-muted fw-semibold mb-0 text-nowrap">
+                <i class="bi bi-funnel me-1"></i>Filter Periode:
+            </label>
+            <select id="admin-periode-select" name="periode_id" class="form-select form-select-sm shadow-sm"
+                style="min-width: 220px; border-radius: 8px;" onchange="this.form.submit()">
+                <option value="all" {{ (string) $selectedPeriodeId === 'all' ? 'selected' : '' }}>Semua Periode</option>
+                @foreach ($daftarPeriode as $p)
+                    <option value="{{ $p->id }}" {{ (string) $selectedPeriodeId === (string) $p->id ? 'selected' : '' }}>
+                        {{ $p->nama }} ({{ $p->tahun }}) {{ $p->status === 'aktif' ? '• Aktif' : '' }}
+                    </option>
+                @endforeach
+            </select>
+        </form>
+    </div>
+
     <div class="row g-3 g-md-4 mb-4">
         {{-- Statistik Pendaftaran Premium --}}
         <div class="col-12 col-md-4">
@@ -107,7 +131,12 @@
                         <div class="header-icon purple-icon">
                             <i class="bi bi-file-earmark-text-fill"></i>
                         </div>
-                        <h6 class="fw-semibold mb-0">Statistik Pendaftaran</h6>
+                        <div>
+                            <h6 class="fw-semibold mb-0">Statistik Pendaftaran</h6>
+                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle mt-1" style="font-size: 0.72rem;">
+                                <i class="bi bi-calendar-event me-1"></i>{{ $periodeTerpilih ? $periodeTerpilih->nama . ' (' . ($periodeTerpilih->tahun ?? '-') . ')' : 'Semua Periode' }}
+                            </span>
+                        </div>
                     </div>
                     <div class="header-badge">
                         <i class="bi bi-database"></i> Real-time
