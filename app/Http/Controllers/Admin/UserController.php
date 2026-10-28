@@ -76,7 +76,8 @@ class UserController extends Controller
     public function edit(User $user)
     {
         $roles = Role::all();
-        return view('admin.users.edit', compact('user', 'roles'));
+        $adminCount = User::role('admin')->count();
+        return view('admin.users.edit', compact('user', 'roles', 'adminCount'));
     }
 
     public function update(Request $request, User $user)
@@ -87,6 +88,19 @@ class UserController extends Controller
             'password' => 'nullable|min:8|confirmed',
             'role'     => 'required|exists:roles,name',
         ]);
+
+        $roleNames = is_array($request->role) ? $request->role : [$request->role];
+        $containsAdmin = in_array('admin', $roleNames);
+
+        // Proteksi 1: Admin yang sedang login tidak boleh mengubah role akunnya sendiri menjadi selain admin
+        if ($user->id === auth()->id() && !$containsAdmin) {
+            return back()->withInput()->with('error', 'Anda tidak dapat mengubah role akun sendiri menjadi selain admin.');
+        }
+
+        // Proteksi 2: Role admin terakhir di sistem tidak boleh dicabut atau diganti
+        if ($user->hasRole('admin') && !$containsAdmin && User::role('admin')->count() <= 1) {
+            return back()->withInput()->with('error', 'Tidak dapat mencabut atau mengubah role admin terakhir di sistem.');
+        }
 
         $dataLama = [
             'name'  => $user->name,
@@ -124,6 +138,11 @@ class UserController extends Controller
             return back()->with('error', 'Tidak dapat menghapus akun sendiri.');
         }
 
+        // Proteksi: Akun admin terakhir di sistem tidak boleh dihapus
+        if ($user->hasRole('admin') && User::role('admin')->count() <= 1) {
+            return back()->with('error', 'Tidak dapat menghapus akun admin terakhir di sistem.');
+        }
+
         $user->delete();
 
         return redirect()->route('admin.users.index')
@@ -135,6 +154,19 @@ class UserController extends Controller
         $request->validate([
             'role' => 'required|exists:roles,name',
         ]);
+
+        $roleNames = is_array($request->role) ? $request->role : [$request->role];
+        $containsAdmin = in_array('admin', $roleNames);
+
+        // Proteksi 1: Admin yang sedang login tidak boleh mengubah role akunnya sendiri menjadi selain admin
+        if ($user->id === auth()->id() && !$containsAdmin) {
+            return back()->with('error', 'Anda tidak dapat mengubah role akun sendiri menjadi selain admin.');
+        }
+
+        // Proteksi 2: Role admin terakhir di sistem tidak boleh dicabut atau diganti
+        if ($user->hasRole('admin') && !$containsAdmin && User::role('admin')->count() <= 1) {
+            return back()->with('error', 'Tidak dapat mencabut atau mengubah role admin terakhir di sistem.');
+        }
 
         $roleLama = $user->getRoleNames()->first();
         $user->syncRoles([$request->role]);

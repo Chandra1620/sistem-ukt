@@ -121,14 +121,47 @@
                                 Role / Hak Akses
                                 <span class="text-danger">*</span>
                             </label>
+
+                            @php
+                                $isSelf = $user->id === auth()->id();
+                                $isLastAdmin = $user->hasRole('admin') && ($adminCount ?? \App\Models\User::role('admin')->count()) <= 1;
+                                $roleLocked = $isSelf || $isLastAdmin;
+                            @endphp
+
+                            @if ($isSelf)
+                                <div class="role-lock-notice mb-2">
+                                    <i class="bi bi-shield-lock-fill text-warning me-2"></i>
+                                    <span class="small text-muted">
+                                        Anda sedang mengedit akun sendiri. Opsi role selain <strong>Admin</strong> dinonaktifkan demi menjaga hak akses.
+                                    </span>
+                                </div>
+                            @elseif ($isLastAdmin)
+                                <div class="role-lock-notice mb-2">
+                                    <i class="bi bi-shield-lock-fill text-danger me-2"></i>
+                                    <span class="small text-muted">
+                                        User ini merupakan <strong>Admin terakhir</strong> di sistem. Opsi role selain Admin dinonaktifkan.
+                                    </span>
+                                </div>
+                            @endif
+
                             <div class="role-options">
                                 @foreach ($roles as $role)
-                                    <label class="role-option">
+                                    @php
+                                        $isDisabled = $roleLocked && $role->name !== 'admin';
+                                    @endphp
+                                    <label class="role-option {{ $isDisabled ? 'is-disabled' : '' }}"
+                                        @if($isDisabled) title="{{ $isSelf ? 'Role akun sendiri tidak dapat diubah ke non-admin' : 'Admin terakhir tidak dapat diubah ke non-admin' }}" @endif>
                                         <input type="radio" name="role" value="{{ $role->name }}"
-                                            {{ old('role', $user->getRoleNames()->first()) === $role->name ? 'checked' : '' }}>
+                                            {{ old('role', $user->getRoleNames()->first()) === $role->name ? 'checked' : '' }}
+                                            {{ $isDisabled ? 'disabled' : '' }}>
                                         <div class="role-card role-{{ $role->name }}">
                                             <i class="bi {{ $role->icon ?? 'bi-shield-check' }}"></i>
-                                            <div class="role-title">{{ ucfirst($role->name) }}</div>
+                                            <div class="role-title">
+                                                {{ ucfirst($role->name) }}
+                                                @if($isDisabled)
+                                                    <i class="bi bi-lock-fill ms-1 text-muted" style="font-size: 0.75rem;"></i>
+                                                @endif
+                                            </div>
                                             <div class="role-desc">
                                                 @switch($role->name)
                                                     @case('admin')
@@ -406,6 +439,31 @@
 
         .role-option {
             cursor: pointer;
+        }
+
+        .role-option.is-disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .role-option.is-disabled .role-card {
+            background: #f8fafc;
+            border-color: #e2e8f0;
+            cursor: not-allowed;
+        }
+
+        .role-option.is-disabled:hover .role-card {
+            transform: none;
+            box-shadow: none;
+        }
+
+        .role-lock-notice {
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            border-radius: 12px;
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
         }
 
         .role-option input {
