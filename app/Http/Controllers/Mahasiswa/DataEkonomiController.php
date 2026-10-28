@@ -9,6 +9,7 @@ use App\Models\Kriteria;
 use App\Models\SubKriteria;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\Rule;
 
 class DataEkonomiController extends Controller
 {
@@ -41,14 +42,20 @@ class DataEkonomiController extends Controller
 
         $kriteria = $this->getKriteria($pendaftaran->periode_id);
 
-        // Semua kriteria pakai dropdown sub kriteria
-        $rules = [];
+        // Semua kriteria pakai dropdown sub kriteria dengan validasi ketat per kriteria & periode
+        $rules    = [];
+        $messages = [];
         foreach ($kriteria as $kode => $k) {
             $field         = 'sub_' . strtolower($kode) . '_id';
-            $rules[$field] = 'required|exists:sub_kriteria,id';
+            $rules[$field] = [
+                'required',
+                Rule::exists('sub_kriteria', 'id')->where('kriteria_id', $k->id),
+            ];
+            $messages[$field . '.required'] = "Pilihan {$k->nama} wajib dipilih.";
+            $messages[$field . '.exists']   = "Pilihan {$k->nama} tidak valid untuk kriteria ini.";
         }
 
-        $validated = $request->validate($rules);
+        $validated = $request->validate($rules, $messages);
         $validated['pendaftaran_id'] = $pendaftaran->id;
 
         // Map sub kriteria ke field legacy untuk kompatibilitas
@@ -85,13 +92,19 @@ class DataEkonomiController extends Controller
 
         $kriteria = $this->getKriteria($pendaftaran->periode_id);
 
-        $rules = [];
+        $rules    = [];
+        $messages = [];
         foreach ($kriteria as $kode => $k) {
             $field         = 'sub_' . strtolower($kode) . '_id';
-            $rules[$field] = 'required|exists:sub_kriteria,id';
+            $rules[$field] = [
+                'required',
+                Rule::exists('sub_kriteria', 'id')->where('kriteria_id', $k->id),
+            ];
+            $messages[$field . '.required'] = "Pilihan {$k->nama} wajib dipilih.";
+            $messages[$field . '.exists']   = "Pilihan {$k->nama} tidak valid untuk kriteria ini.";
         }
 
-        $validated = $request->validate($rules);
+        $validated = $request->validate($rules, $messages);
         $validated = $this->mapSubKriteriaToFields($validated, $kriteria);
 
         $pendaftaran->dataEkonomi->update($validated);
