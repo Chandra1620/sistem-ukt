@@ -25,8 +25,10 @@ class GolonganUktController extends Controller
         $request->validate([
             'golongan' => 'required|integer|min:1|unique:golongan_ukt,golongan',
             'nominal'  => 'required|numeric|min:0',
-            'skor_min' => 'nullable|numeric|min:0|max:1',
-            'skor_max' => 'nullable|numeric|min:0|max:1',
+            'skor_min' => 'nullable|numeric|min:0|max:100',
+            'skor_max' => 'nullable|numeric|min:0|max:100|gte:skor_min',
+        ], [
+            'skor_max.gte' => 'Skor maksimum harus lebih besar atau sama dengan skor minimum.',
         ]);
 
         $golongan = GolonganUkt::create($request->only([
@@ -51,8 +53,10 @@ class GolonganUktController extends Controller
     {
         $request->validate([
             'nominal'  => 'required|numeric|min:0',
-            'skor_min' => 'nullable|numeric|min:0|max:1',
-            'skor_max' => 'nullable|numeric|min:0|max:1',
+            'skor_min' => 'nullable|numeric|min:0|max:100',
+            'skor_max' => 'nullable|numeric|min:0|max:100|gte:skor_min',
+        ], [
+            'skor_max.gte' => 'Skor maksimum harus lebih besar atau sama dengan skor minimum.',
         ]);
 
         $dataLama = $golonganUkt->only(['nominal', 'skor_min', 'skor_max']);

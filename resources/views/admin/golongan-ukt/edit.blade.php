@@ -132,7 +132,7 @@
                                         <input type="number" name="skor_min"
                                             class="form-control @error('skor_min') is-invalid @enderror"
                                             value="{{ old('skor_min', $golonganUkt->skor_min) }}" min="0"
-                                            max="1" step="0.001" placeholder="0.000">
+                                            max="100" step="0.01" placeholder="0.00">
                                         @error('skor_min')
                                             <div class="invalid-feedback">{{ $message }}</div>
                                         @enderror
@@ -145,7 +145,7 @@
                                         <input type="number" name="skor_max"
                                             class="form-control @error('skor_max') is-invalid @enderror"
                                             value="{{ old('skor_max', $golonganUkt->skor_max) }}" min="0"
-                                            max="1" step="0.001" placeholder="1.000">
+                                            max="100" step="0.01" placeholder="100.00">
                                         @error('skor_max')
                                             <div class="invalid-feedback">{{ $message }}</div>
                                         @enderror
@@ -153,7 +153,7 @@
                                 </div>
                                 <div class="form-text mt-2">
                                     <i class="bi bi-sliders2 me-1"></i>
-                                    Nilai skor antara 0 - 1 (contoh: 0.500). Biarkan kosong jika tidak menggunakan range
+                                    Nilai skor antara 0 - 100 (contoh: 12.50). Biarkan kosong jika tidak menggunakan range
                                     otomatis.
                                 </div>
                             </div>
@@ -379,8 +379,8 @@
                     const min = parseFloat(skorMin.value);
                     const max = parseFloat(skorMax.value);
 
-                    if (min >= max) {
-                        skorMax.setCustomValidity('Skor maksimum harus lebih besar dari skor minimum');
+                    if (min > max) {
+                        skorMax.setCustomValidity('Skor maksimum harus lebih besar atau sama dengan skor minimum');
                         if (skorMax.classList) skorMax.classList.add('is-invalid');
                     } else {
                         if (skorMax.classList) skorMax.classList.remove('is-invalid');
@@ -402,7 +402,7 @@
                     validateScoreRange();
                     if (skorMax && skorMax.getCustomValidity()) {
                         e.preventDefault();
-                        alert('Skor maksimum harus lebih besar dari skor minimum');
+                        alert('Skor maksimum harus lebih besar atau sama dengan skor minimum');
                     }
 
                     // Confirmation for significant changes
