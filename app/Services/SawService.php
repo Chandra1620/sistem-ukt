@@ -128,7 +128,7 @@ class SawService
         $nominalByGolongan = $kriteriaData['nominalByGolongan'] ?? [];
 
         $pendaftarans = Pendaftaran::whereIn('id', $pendaftaranIds)
-            ->with(['dataEkonomi', 'programStudi'])
+            ->with(['dataEkonomi', 'programStudi', 'hasilUkt'])
             ->get();
 
         $now = now();
@@ -136,18 +136,30 @@ class SawService
         $hasilUktRows = [];
         $detailByPendaftaran = [];
 
+        // Identifikasi pendaftaran yang dilindungi:
+        // Pendaftaran yang sudah final ('final_ukt', 'selesai') ATAU memiliki hasil_ukt dengan is_override = true.
+        $protectedPendaftaranIds = [];
+        foreach ($pendaftarans as $p) {
+            if (in_array($p->status, ['final_ukt', 'selesai']) || ($p->hasilUkt && $p->hasilUkt->is_override)) {
+                $protectedPendaftaranIds[] = $p->id;
+            }
+        }
+
         foreach ($pendaftarans as $p) {
             if ($p->is_kip) {
-                $prodi   = $p->programStudi;
-                $nominal = $prodi->nominal_kip ?? 0;
-                $hasilUktRows[] = [
-                    'pendaftaran_id'       => $p->id,
-                    'golongan_rekomendasi' => 0,
-                    'golongan_final'       => 0,
-                    'nominal_final'        => $nominal,
-                    'sumber_pembiayaan'    => 'KIP',
-                    'dasar_penetapan'      => 'KIP - Akreditasi ' . ($prodi->akreditasi ?? '-'),
-                ];
+                // Jangan sentuh hasil_ukt jika pendaftaran sudah final atau di-override
+                if (!in_array($p->id, $protectedPendaftaranIds)) {
+                    $prodi   = $p->programStudi;
+                    $nominal = $prodi->nominal_kip ?? 0;
+                    $hasilUktRows[] = [
+                        'pendaftaran_id'       => $p->id,
+                        'golongan_rekomendasi' => 0,
+                        'golongan_final'       => 0,
+                        'nominal_final'        => $nominal,
+                        'sumber_pembiayaan'    => 'KIP',
+                        'dasar_penetapan'      => 'KIP - Akreditasi ' . ($prodi->akreditasi ?? '-'),
+                    ];
+                }
                 continue;
             }
 
@@ -192,18 +204,22 @@ class SawService
                 'updated_at'           => $now,
             ];
 
-            $hasilUktRows[] = [
-                'pendaftaran_id'       => $p->id,
-                'golongan_rekomendasi' => $golongan,
-                'golongan_final'       => $golongan,
-                'nominal_final'        => $nominal,
-                'sumber_pembiayaan'    => 'Mandiri',
-                'dasar_penetapan'      => 'Non-KIP - SAW Score: ' . number_format($skorAkhir, 2),
-            ];
+            // Jangan sentuh hasil_ukt jika pendaftaran sudah final atau di-override
+            if (!in_array($p->id, $protectedPendaftaranIds)) {
+                $hasilUktRows[] = [
+                    'pendaftaran_id'       => $p->id,
+                    'golongan_rekomendasi' => $golongan,
+                    'golongan_final'       => $golongan,
+                    'nominal_final'        => $nominal,
+                    'sumber_pembiayaan'    => 'Mandiri',
+                    'dasar_penetapan'      => 'Non-KIP - SAW Score: ' . number_format($skorAkhir, 2),
+                ];
+            }
         }
 
         DB::transaction(function () use (
             $pendaftaranIds,
+            $protectedPendaftaranIds,
             $hasilSawRows,
             $hasilUktRows,
             $detailByPendaftaran,
@@ -211,7 +227,16 @@ class SawService
         ) {
             DetailSaw::whereHas('hasilSaw', fn($q) => $q->whereIn('pendaftaran_id', $pendaftaranIds))->delete();
             HasilSaw::whereIn('pendaftaran_id', $pendaftaranIds)->delete();
-            DB::table('hasil_ukt')->whereIn('pendaftaran_id', $pendaftaranIds)->delete();
+
+            // Hanya hapus hasil_ukt untuk pendaftaran yang BELUM final dan BUKAN override
+            $targetUktPendaftaranIds = array_diff($pendaftaranIds, $protectedPendaftaranIds);
+
+            if (!empty($targetUktPendaftaranIds)) {
+                DB::table('hasil_ukt')
+                    ->whereIn('pendaftaran_id', $targetUktPendaftaranIds)
+                    ->whereRaw('"is_override" IS NOT TRUE')
+                    ->delete();
+            }
 
             if (!empty($hasilSawRows)) {
                 foreach (array_chunk($hasilSawRows, 500) as $chunk) {
@@ -266,13 +291,16 @@ class SawService
                         (pendaftaran_id, golongan_rekomendasi, golongan_final,
                          nominal_final, sumber_pembiayaan, dasar_penetapan,
                          is_override, created_at, updated_at)
-                     VALUES ' . implode(', ', $placeholders),
+                      VALUES ' . implode(', ', $placeholders),
                         $bindings
                     );
                 }
             }
 
-            Pendaftaran::whereIn('id', $pendaftaranIds)->update(['status' => 'hasil_awal']);
+            // HANYA update status ke 'hasil_awal' untuk pendaftaran yang belum final
+            Pendaftaran::whereIn('id', $pendaftaranIds)
+                ->whereNotIn('status', ['final_ukt', 'selesai'])
+                ->update(['status' => 'hasil_awal']);
         });
     }
 
@@ -353,6 +381,8 @@ class SawService
                     sumber_pembiayaan    = EXCLUDED.sumber_pembiayaan,
                     dasar_penetapan      = EXCLUDED.dasar_penetapan,
                     updated_at           = EXCLUDED.updated_at
+                WHERE hasil_ukt.is_override IS NOT TRUE
+                  AND hasil_ukt.finalisasi_at IS NULL
             ", [
                 $pendaftaran->id,
                 0, // golongan = 0 untuk KIP
@@ -363,7 +393,9 @@ class SawService
                 now(),
             ]);
 
-            $pendaftaran->update(['status' => 'hasil_awal']);
+            if (!in_array($pendaftaran->status, ['final_ukt', 'selesai'])) {
+                $pendaftaran->update(['status' => 'hasil_awal']);
+            }
         });
 
         return [
@@ -446,6 +478,8 @@ class SawService
                     sumber_pembiayaan    = EXCLUDED.sumber_pembiayaan,
                     dasar_penetapan      = EXCLUDED.dasar_penetapan,
                     updated_at           = EXCLUDED.updated_at
+                WHERE hasil_ukt.is_override IS NOT TRUE
+                  AND hasil_ukt.finalisasi_at IS NULL
             ", [
                 $pendaftaran->id,
                 $golongan,
@@ -459,7 +493,10 @@ class SawService
             if ($updateRanking) {
                 $this->updateRanking($periodeId);
             }
-            $pendaftaran->update(['status' => 'hasil_awal']);
+
+            if (!in_array($pendaftaran->status, ['final_ukt', 'selesai'])) {
+                $pendaftaran->update(['status' => 'hasil_awal']);
+            }
         });
 
         return [

@@ -435,9 +435,7 @@
                             <div class="d-flex gap-2">
                                 <i class="bi bi-exclamation-triangle-fill fs-5"></i>
                                 <div>
-                                    <strong>Perhatian!</strong> Proses ini akan menghapus semua hasil SAW
-                                    dan menghitung ulang dari awal. Status mahasiswa yang sudah
-                                    Final UKT akan direset ke Diverifikasi.
+                                    <strong>Perhatian!</strong> Proses ini akan menghitung ulang skor SAW untuk pendaftaran berstatus <em>Diverifikasi</em>, <em>Sedang Dihitung</em>, atau <em>Hasil Awal</em>. Pendaftaran yang sudah <strong>Final UKT / Selesai</strong> serta baris penetapan dengan status <em>Override</em> tidak akan diubah dan dilewati.
                                 </div>
                             </div>
                         </div>

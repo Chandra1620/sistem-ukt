@@ -41,20 +41,25 @@ class ProsesRecalculateSawInduk implements ShouldQueue
             return;
         }
 
-        // Cek apakah ada pendaftaran yang eligible
+        // Cek apakah ada pendaftaran yang eligible (hanya yang belum final)
         $eligibleQuery = Pendaftaran::where('periode_id', $this->periodeId)
             ->whereIn('status', [
                 'diverifikasi',
                 'sedang_dihitung',
                 'hasil_awal',
-                'final_ukt',
-                'selesai',
             ]);
 
         $totalCount = (clone $eligibleQuery)->count();
         if ($totalCount === 0) {
             Log::info("ProsesRecalculateSawInduk: Tidak ada pendaftaran eligible pada periode {$this->periodeId}.");
             return;
+        }
+
+        $skippedFinalCount = Pendaftaran::where('periode_id', $this->periodeId)
+            ->whereIn('status', ['final_ukt', 'selesai'])
+            ->count();
+        if ($skippedFinalCount > 0) {
+            Log::info("ProsesRecalculateSawInduk: {$skippedFinalCount} pendaftaran final dilewati pada periode {$this->periodeId}.");
         }
 
         // 1. Hitung nilai min/max seluruh peserta SEKALI di awal

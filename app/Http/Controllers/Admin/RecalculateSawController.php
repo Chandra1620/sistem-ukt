@@ -21,28 +21,40 @@ class RecalculateSawController extends Controller
 
         $periode = PeriodeSeleksi::findOrFail($request->periode_id);
 
-        // Cek apakah ada data pendaftaran yang memenuhi syarat perhitungan ulang
-        $adaPendaftar = Pendaftaran::where('periode_id', $periode->id)
+        // Hanya pendaftaran yang belum final yang boleh dihitung ulang
+        $totalEligible = Pendaftaran::where('periode_id', $periode->id)
             ->whereIn('status', [
                 'diverifikasi',
                 'sedang_dihitung',
                 'hasil_awal',
+            ])
+            ->count();
+
+        // Hitung pendaftaran final yang dilewati
+        $totalFinal = Pendaftaran::where('periode_id', $periode->id)
+            ->whereIn('status', [
                 'final_ukt',
                 'selesai',
             ])
-            ->exists();
+            ->count();
 
-        if (!$adaPendaftar) {
-            return back()->with('error', 'Tidak ada data pendaftaran yang bisa dihitung ulang pada periode ini.');
+        if ($totalEligible === 0) {
+            $pesan = 'Tidak ada data pendaftaran yang bisa dihitung ulang pada periode ini.';
+            if ($totalFinal > 0) {
+                $pesan .= " ({$totalFinal} pendaftaran final dilewati).";
+            }
+            return back()->with('error', $pesan);
         }
 
         // Dispatch job induk ke queue secara asinkron (tidak memblokir request HTTP)
         ProsesRecalculateSawInduk::dispatch($periode->id, Auth::id());
 
-        return back()->with(
-            'success',
-            "Perhitungan sedang diproses di latar belakang untuk periode {$periode->nama}."
-        );
+        $pesanSukses = "Perhitungan sedang diproses di latar belakang untuk periode {$periode->nama}.";
+        if ($totalFinal > 0) {
+            $pesanSukses .= " {$totalFinal} pendaftaran final dilewati.";
+        }
+
+        return back()->with('success', $pesanSukses);
     }
 
     /**
