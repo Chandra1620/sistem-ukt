@@ -8,6 +8,7 @@ use App\Models\Pendaftaran;
 use App\Models\HasilUkt;
 use App\Models\DataEkonomi;
 use App\Models\PeriodeSeleksi;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class StatistikController extends Controller
@@ -96,5 +97,39 @@ class StatistikController extends Controller
             'maximum'   => (float) ($stats->maximum ?? 0),
             'total'     => $count,
         ]);
+    }
+
+    public function kipPerProdi(Request $request)
+    {
+        $periodeId = $this->resolvePeriodeId($request);
+
+        $data = DB::table('program_studi as ps')
+            ->leftJoin('pendaftaran as p', function ($join) use ($periodeId) {
+                $join->on('p.program_studi_id', '=', 'ps.id')
+                    ->whereIn('p.status', ['hasil_awal', 'final_ukt', 'selesai']);
+                if ($periodeId) {
+                    $join->where('p.periode_id', '=', $periodeId);
+                }
+            })
+            ->whereRaw('"ps"."aktif" IS TRUE')
+            ->selectRaw("
+                ps.nama as prodi,
+                CAST(COUNT(CASE WHEN p.is_kip IS TRUE THEN 1 END) AS INTEGER) as kip,
+                CAST(COUNT(CASE WHEN p.is_kip IS FALSE THEN 1 END) AS INTEGER) as non_kip,
+                CAST(COUNT(p.id) AS INTEGER) as total
+            ")
+            ->groupBy('ps.id', 'ps.nama')
+            ->havingRaw('COUNT(p.id) > 0')
+            ->orderBy('ps.id')
+            ->get()
+            ->map(fn($row) => [
+                'prodi'   => (string) $row->prodi,
+                'kip'     => (int) $row->kip,
+                'non_kip' => (int) $row->non_kip,
+                'total'   => (int) $row->total,
+            ])
+            ->values();
+
+        return response()->json($data);
     }
 }
