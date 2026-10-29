@@ -224,7 +224,7 @@ class NotifikasiController extends Controller
                 ->first();
 
             if ($periodeHampirSelesai) {
-                $sisaHari = now()->diffInDays($periodeHampirSelesai->tanggal_selesai);
+                $sisaHari = (int) ceil(now()->diffInDays($periodeHampirSelesai->tanggal_selesai));
                 $this->upsertNotif(
                     $userId,
                     'periode_berakhir',
@@ -266,11 +266,13 @@ class NotifikasiController extends Controller
             ->first();
 
         if ($notif) {
-            $notif->update([
-                'judul'      => $judul,
-                'pesan'      => $pesan,
-                'updated_at' => now(),
-            ]);
+            if ($notif->judul !== $judul || $notif->pesan !== $pesan) {
+                $notif->update([
+                    'judul'      => $judul,
+                    'pesan'      => $pesan,
+                    'updated_at' => now(),
+                ]);
+            }
             return;
         }
 

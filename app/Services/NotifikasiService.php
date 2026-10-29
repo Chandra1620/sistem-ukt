@@ -8,6 +8,7 @@ use App\Mail\BandingSelesaiMail;
 use App\Models\Notifikasi;
 use App\Models\Pendaftaran;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 
@@ -27,6 +28,9 @@ class NotifikasiService
             'tipe'    => $tipe,
             'data'    => $data,
         ]);
+
+        Cache::forget("user_{$userId}_notifikasi_list");
+        Cache::forget("user_{$userId}_notif_unread_count");
     }
 
     public static function dokumenDitolak(Pendaftaran $pendaftaran, string $alasan): void
