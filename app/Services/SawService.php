@@ -609,15 +609,15 @@ class SawService
         // di dalam DB::transaction, menggantikan loop N query UPDATE sebelumnya.
         DB::transaction(function () use ($periodeId) {
             DB::statement(
-                'UPDATE hasil_saw AS h
-                    SET ranking = r.rn,
+                'UPDATE hasil_saw h
+                    SET ranking = r.rnk,
                         updated_at = NOW()
                    FROM (
                         SELECT id,
-                               ROW_NUMBER() OVER (ORDER BY skor_akhir DESC, id ASC) AS rn
+                               ROW_NUMBER() OVER (ORDER BY skor_akhir DESC, id ASC) AS rnk
                           FROM hasil_saw
                          WHERE periode_id = ?
-                   ) AS r
+                   ) r
                   WHERE h.id = r.id',
                 [$periodeId]
             );
